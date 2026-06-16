@@ -1,0 +1,221 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "title": "reg-agent Configuration Schema",
+  "description": "Configuration schema for reg-agent CI/CD orchestrator",
+  "type": "object",
+  "required": ["deployment_mode", "quads"],
+  "properties": {
+    "comment": {
+      "type": "string",
+      "description": "Optional comment describing this configuration"
+    },
+    "version": {
+      "type": "string",
+      "description": "Configuration version"
+    },
+    "deployment_mode": {
+      "type": "string",
+      "enum": ["full", "cluster-ready"],
+      "description": "Deployment mode: full (QUADS+Jetlag+Crucible+Regulus) or cluster-ready (user provides cluster)"
+    },
+    "quads": {
+      "type": "object",
+      "description": "QUADS resource allocation configuration",
+      "properties": {
+        "mode": {
+          "type": "string",
+          "enum": ["allocate", "import"],
+          "description": "QUADS mode: allocate new resources or import existing allocation"
+        },
+        "api_server": {
+          "type": "string",
+          "description": "QUADS API server URL"
+        },
+        "username": {
+          "type": "string",
+          "description": "QUADS username"
+        },
+        "password": {
+          "type": "string",
+          "description": "QUADS password (leave empty if using api_token)"
+        },
+        "api_token": {
+          "type": "string",
+          "description": "QUADS API token (preferred over password)"
+        },
+        "lab": {
+          "type": "string",
+          "enum": ["scalelab", "performancelab"],
+          "description": "Lab location"
+        },
+        "num_hosts": {
+          "type": "integer",
+          "minimum": 1,
+          "description": "Number of hosts to allocate (required for mode=allocate)"
+        },
+        "preferred_model": {
+          "type": "string",
+          "description": "Preferred hardware model (e.g., r750, r740xd)"
+        },
+        "workload_name": {
+          "type": "string",
+          "description": "Workload identifier for the allocation"
+        },
+        "wipe_disks": {
+          "type": "string",
+          "enum": ["yes", "no"],
+          "description": "Whether to wipe disks on allocation"
+        },
+        "cloud_name": {
+          "type": "string",
+          "description": "Cloud name for import mode (e.g., cloud23)"
+        }
+      },
+      "required": ["api_server", "username", "lab"],
+      "allOf": [
+        {
+          "if": {
+            "properties": { "mode": { "const": "allocate" } }
+          },
+          "then": {
+            "required": ["num_hosts", "preferred_model", "workload_name"]
+          }
+        },
+        {
+          "if": {
+            "properties": { "mode": { "const": "import" } }
+          },
+          "then": {
+            "required": ["cloud_name"]
+          }
+        }
+      ]
+    },
+    "jetlag": {
+      "type": "object",
+      "description": "Jetlag cluster deployment configuration",
+      "properties": {
+        "cluster_type": {
+          "type": "string",
+          "enum": ["mno", "sno"],
+          "description": "Cluster type: mno (multi-node) or sno (single-node)"
+        },
+        "worker_node_count": {
+          "type": "integer",
+          "minimum": 0,
+          "description": "Number of worker nodes (for MNO)"
+        },
+        "ocp_build": {
+          "type": "string",
+          "enum": ["ga", "dev", "ci"],
+          "description": "OpenShift build type"
+        },
+        "ocp_version": {
+          "type": "string",
+          "description": "OpenShift version (e.g., latest-4.20, 4.18.1)"
+        },
+        "network_stack": {
+          "type": "string",
+          "enum": ["ipv4", "ipv6", "dual"],
+          "description": "Network stack configuration"
+        },
+        "pull_secret_path": {
+          "type": "string",
+          "description": "Path to OpenShift pull secret file"
+        }
+      },
+      "required": ["cluster_type", "ocp_build", "ocp_version", "network_stack"]
+    },
+    "crucible": {
+      "type": "object",
+      "description": "Crucible benchmark framework configuration",
+      "properties": {
+        "git_repo": {
+          "type": "string",
+          "description": "Crucible git repository URL"
+        },
+        "git_branch": {
+          "type": "string",
+          "description": "Crucible git branch"
+        },
+        "install_script": {
+          "type": "string",
+          "description": "Crucible installation script name"
+        }
+      }
+    },
+    "crucible_controller": {
+      "type": "object",
+      "description": "Crucible controller host configuration",
+      "properties": {
+        "target": {
+          "type": "string",
+          "enum": ["bastion", "other"],
+          "description": "Where to install Crucible: bastion (from Jetlag) or other host"
+        },
+        "user": {
+          "type": "string",
+          "description": "SSH user for controller host"
+        },
+        "other_host": {
+          "type": "string",
+          "description": "Custom controller hostname (required if target=other)"
+        }
+      },
+      "required": ["target"],
+      "if": {
+        "properties": { "target": { "const": "other" } }
+      },
+      "then": {
+        "required": ["other_host"]
+      }
+    },
+    "regulus": {
+      "type": "object",
+      "description": "Regulus performance testing configuration",
+      "properties": {
+        "install_subdir": {
+          "type": "string",
+          "description": "Optional subdirectory under /root for Regulus installation"
+        },
+        "bastion_ssh_user": {
+          "type": "string",
+          "description": "SSH user for bastion host"
+        },
+        "jobs": {
+          "type": "string",
+          "pattern": "^(\\./[^ ]+( \\./[^ ]+)*)?$",
+          "description": "Space-separated test job paths (e.g., './SANDBOX' or './1_GROUP/NO-PAO/4IP ./2_GROUP/PAO/6IP')"
+        },
+        "duration": {
+          "type": "string",
+          "pattern": "^[0-9]+$",
+          "description": "Test duration in seconds"
+        },
+        "tag": {
+          "type": "string",
+          "description": "Test identifier tag"
+        },
+        "num_samples": {
+          "type": "string",
+          "pattern": "^[0-9]+$",
+          "description": "Number of test samples to run"
+        },
+        "test_suite": {
+          "type": "string",
+          "description": "Optional test suite name"
+        }
+      }
+    },
+    "lab": {
+      "type": "object",
+      "description": "Lab environment configuration",
+      "properties": {
+        "ssh_password": {
+          "type": "string",
+          "description": "Default SSH password for lab machines"
+        }
+      }
+    }
+  }
+}

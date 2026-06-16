@@ -1,0 +1,127 @@
+# reg-agent .gitignore
+
+# Generated configuration files
+vars/state.env
+vars/*.json
+!vars/config.json.template
+vars/jobs/
+
+# JSON configuration files (except sample and schema)
+config/*.json
+!config/sample-config.json
+!config/config.schema.json
+
+# Cloned dependency repositories
+repos/
+
+# Test artifacts and results
+artifacts/
+
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+.Python
+build/
+develop-eggs/
+dist/
+downloads/
+eggs/
+.eggs/
+# Python lib directories (use specific paths to avoid ignoring modules/lib/)
+/lib/
+/lib64/
+parts/
+sdist/
+var/
+wheels/
+*.egg-info/
+.installed.cfg
+*.egg
+MANIFEST
+
+# Virtual environments
+.venv/
+venv/
+ENV/
+env/
+reg-agent-venv/
+
+# LLM server
+llm-server/llm-server.pid
+llm-server/llm-server.log
+llm-server/*.log
+
+# Logs
+*.log
+logs/
+*.out
+
+# Temporary files
+*.tmp
+*.temp
+*.swp
+*.swo
+*~
+.DS_Store
+
+# QUADS output
+/tmp/quads_output.log
+
+# SSH keys (if accidentally placed here)
+*.pem
+*.key
+*_rsa
+*_rsa.pub
+pull-secret.txt
+
+# IDE
+.vscode/
+.idea/
+*.iml
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Ansible
+*.retry
+.ansible/
+
+# Backup files
+*.bak
+*.backup
+
+# Module-generated files (may contain private info)
+modules/*/generated/
+modules/quads/generated/
+modules/jetlag/generated/
+modules/crucible/generated/
+modules/regulus/generated/
+
+# Private notes and session logs
+*-private.md
+*-session.md
+scrub-private-info.log
+config/start-config.json
+
+# Internal development documentation (not for upstream)
+ARCHITECTURE-*.md
+PHASE-*.md
+IMPLEMENTATION_STATUS.md
+INSTALLATION-TARGET-CONFIG.md
+PRIVATE-INFO-AUDIT.md
+PROJECT_PLAN.md
+QUICKSTART.md
+READY-FOR-PUBLIC-RELEASE.md
+REGULUS-WORK-CONTEXT.md
+SCRUBBING-*.md
+SNO-SUPPORT-STATUS.md
+SUMMARY.md
+TESTING.md
+TESTING-GUIDE.md
+USE_CASES.md
+USE_CASE_FLOWCHART.md
+scrub-private-info.sh
+UPSTREAM-READY.md

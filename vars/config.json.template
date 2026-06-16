@@ -1,0 +1,55 @@
+{
+  "comment": "reg-agent configuration template - copy to config.json and fill in values",
+  "version": "1.0",
+  "deployment_mode": "full",
+  "quads": {
+    "mode": "allocate",
+    "api_server": "",
+    "username": "",
+    "password": "",
+    "api_token": "",
+    "user_domain": "redhat.com",
+    "lab": "scalelab",
+    "num_hosts": 6,
+    "preferred_model": "r750",
+    "workload_name": "",
+    "short_description": "",
+    "wipe_disks": "yes",
+    "cloud_name": ""
+  },
+  "lab": {
+    "ssh_username": "root",
+    "ssh_password": ""
+  },
+  "jetlag": {
+    "cluster_type": "mno",
+    "worker_node_count": 3,
+    "ocp_build": "ga",
+    "ocp_version": "latest-4.20",
+    "network_stack": "ipv4",
+    "ipv6_mode": "",
+    "pull_secret_path": "",
+    "bmc_password": "",
+    "bastion_host": "",
+    "kubeconfig_path": "/root/mno/kubeconfig"
+  },
+  "crucible_controller": {
+    "target": "bastion",
+    "user": "root",
+    "password": ""
+  },
+  "crucible": {
+    "git_repo": "https://github.com/perftool-incubator/crucible.git",
+    "git_branch": "master",
+    "install_script": "rh-install-crucible.sh"
+  },
+  "regulus": {
+    "install_subdir": "",
+    "bastion_ssh_user": "root",
+    "jobs": "",
+    "duration": 60,
+    "tag": "REG-AGENT",
+    "num_samples": 3,
+    "test_suite": ""
+  }
+}

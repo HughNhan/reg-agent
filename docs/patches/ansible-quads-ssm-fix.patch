@@ -1,0 +1,76 @@
+diff --git a/quads_self_schedule.yml b/quads_self_schedule.yml
+index b5d91cb..3df3bc1 100644
+--- a/quads_self_schedule.yml
++++ b/quads_self_schedule.yml
+@@ -281,27 +281,28 @@
+           when:
+             - preferred_models is defined
+             - preferred_models is not string
+-            - available_by_model is defined
++            - preferred_models is iterable
++            - available_hosts.json is defined
+           ansible.builtin.set_fact:
+-            hosts_to_schedule: "{{ selected_json | from_json }}"
++            hosts_to_schedule: "{{ selected_hosts }}"
+           vars:
+             needed: "{{ num_hosts | default(1) | int }}"
+-            selected_json: >-
++            all_available: "{{ available_hosts.json }}"
++            selected_hosts: >-
+               {%- set result = [] -%}
+-              {%- for model_result in available_by_model.results | default([]) -%}
+-                {%- set hosts = model_result.json | default([]) -%}
+-                {%- if hosts is sequence and not hosts is string -%}
+-                  {%- if result | length < needed | int -%}
+-                    {%- for host in hosts -%}
+-                      {%- set existing_hosts = result | map(attribute='name') | list -%}
+-                      {%- if result | length < needed | int and host not in existing_hosts -%}
+-                        {%- set _ = result.append({'name': host}) -%}
++              {%- for preferred_model in preferred_models -%}
++                {%- if result | length < needed | int -%}
++                  {%- for hostname in all_available -%}
++                    {%- if result | length < needed | int -%}
++                      {%- set host_model = hostname.split('-')[-1].split('.')[0] -%}
++                      {%- if host_model | lower == preferred_model | lower and {'name': hostname} not in result -%}
++                        {%- set _ = result.append({'name': hostname}) -%}
+                       {%- endif -%}
+-                    {%- endfor -%}
+-                  {%- endif -%}
++                    {%- endif -%}
++                  {%- endfor -%}
+                 {%- endif -%}
+               {%- endfor -%}
+-              {{ result | to_json }}
++              {{ result }}
+           changed_when: false
+ 
+         - name: Display model selection results
+@@ -309,23 +310,16 @@
+             - preferred_models is defined
+             - preferred_models is not string
+             - hosts_to_schedule is defined
+-            - available_by_model is defined
+           vars:
+             selected_hosts_info: >-
+               {%- set lines = [] -%}
+-              {%- for model_result in available_by_model.results | default([]) -%}
+-                {%- set hosts = model_result.json | default([]) -%}
+-                {%- if hosts is sequence and not hosts is string -%}
+-                  {%- for h in hosts_to_schedule -%}
+-                    {%- if h.name in hosts -%}
+-                      {%- set _ = lines.append(h.name ~ ' (model: ' ~ model_result.item ~ ')') -%}
+-                    {%- endif -%}
+-                  {%- endfor -%}
+-                {%- endif -%}
++              {%- for h in hosts_to_schedule -%}
++                {%- set host_model = h.name.split('-')[-1].split('.')[0] -%}
++                {%- set _ = lines.append(h.name ~ ' (model: ' ~ host_model ~ ')') -%}
+               {%- endfor -%}
+-              {{ lines | to_json }}
++              {{ lines }}
+           ansible.builtin.debug:
+-            msg: "{{ ['Selected ' ~ hosts_to_schedule | length ~ ' host(s) by model preference:'] + (selected_hosts_info | from_json) }}"
++            msg: "{{ ['Selected ' ~ hosts_to_schedule | length ~ ' host(s) by model preference:'] + selected_hosts_info }}"
+           changed_when: false
+ 
+         - name: Select first available hosts (no model preference)
