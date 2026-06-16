@@ -185,12 +185,29 @@ deploy:
 			echo "Phase 2: Jetlag - Deploy cluster"; \
 			echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"; \
 			$(MAKE) -C modules/jetlag init; \
-			if [ -f modules/jetlag/generated/state/current.env ]; then \
-				source modules/jetlag/generated/state/current.env 2>/dev/null; \
-				if [ "$$JETLAG_DEPLOY_COMPLETED" = "true" ] && [ -n "$$BASTION_HOST" ]; then \
-					echo -e "$(GREEN)✓ Jetlag deployment already complete, skipping Phase 2$(NC)"; \
+			if [ -f modules/quads/generated/state/current.env ]; then \
+				source modules/quads/generated/state/current.env 2>/dev/null; \
+				if [ "$$DEPLOYMENT_METHOD" = "imported" ]; then \
+					echo -e "$(GREEN)✓ QUADS cluster imported, skipping Jetlag deployment$(NC)"; \
+					echo "  Using existing cluster from import"; \
+					BASTION_HOST=$$(jq -r '.jetlag.bastion_host' vars/config.json); \
+					KUBECONFIG_PATH=$$(jq -r '.jetlag.kubeconfig_path' vars/config.json); \
 					echo "  Bastion: $$BASTION_HOST"; \
-					echo "  Cluster: $$CLUSTER_TYPE"; \
+					echo "  Kubeconfig: $$KUBECONFIG_PATH"; \
+					echo "" >> vars/state.env; \
+					echo "# Phase 2: Jetlag (imported cluster - added $$(date))" >> vars/state.env; \
+					echo "BASTION_HOST=\"$$BASTION_HOST\"" >> vars/state.env; \
+					echo "KUBECONFIG_PATH=\"$$KUBECONFIG_PATH\"" >> vars/state.env; \
+					echo "JETLAG_IMPORT_COMPLETED=\"true\"" >> vars/state.env; \
+				elif [ -f modules/jetlag/generated/state/current.env ]; then \
+					source modules/jetlag/generated/state/current.env 2>/dev/null; \
+					if [ "$$JETLAG_DEPLOY_COMPLETED" = "true" ] && [ -n "$$BASTION_HOST" ]; then \
+						echo -e "$(GREEN)✓ Jetlag deployment already complete, skipping Phase 2$(NC)"; \
+						echo "  Bastion: $$BASTION_HOST"; \
+						echo "  Cluster: $$CLUSTER_TYPE"; \
+					else \
+						$(MAKE) -C modules/jetlag deploy; \
+					fi; \
 				else \
 					$(MAKE) -C modules/jetlag deploy; \
 				fi; \

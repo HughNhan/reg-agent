@@ -17,6 +17,9 @@ YELLOW='\033[1;33m'
 BLUE='\033[0;36m'
 NC='\033[0m'
 
+# Load validation library
+source "${REG_AGENT_ROOT}/modules/lib/validate-config.sh"
+
 # Ensure jq is available
 if ! command -v jq &> /dev/null; then
     echo -e "${RED}ERROR: jq is required${NC}"
@@ -42,7 +45,13 @@ if [ ! -f "$CONFIG_JSON" ]; then
     echo ""
 fi
 
-# Step 2: Read existing Jetlag configuration
+# Step 2: Check QUADS mode to determine configuration approach
+QUADS_MODE=$(jq -r '.quads.mode // "allocate"' "$CONFIG_JSON")
+
+echo "Detected QUADS mode: $QUADS_MODE"
+echo ""
+
+# Step 2b: Read existing Jetlag configuration
 echo "Reading existing Jetlag configuration..."
 EXISTING_CLUSTER_TYPE=$(jq -r '.jetlag.cluster_type // "mno"' "$CONFIG_JSON")
 EXISTING_WORKER_COUNT=$(jq -r '.jetlag.worker_node_count // "3"' "$CONFIG_JSON")
@@ -93,56 +102,123 @@ prompt_with_default() {
     eval "$var_name='$value'"
 }
 
-# Cluster type
-echo "1. Cluster Type"
-echo "   mno - Multi-Node OpenShift (3 control + N workers)"
-echo "   sno - Single-Node OpenShift"
-prompt_with_default "   Cluster type" "$EXISTING_CLUSTER_TYPE" NEW_CLUSTER_TYPE
-echo ""
-
-# Worker count (for MNO)
-if [ "$NEW_CLUSTER_TYPE" = "mno" ]; then
-    echo "2. Worker Node Count"
-    prompt_with_default "   Worker count" "$EXISTING_WORKER_COUNT" NEW_WORKER_COUNT
+# Check if QUADS mode is import (cluster already exists)
+if [ "$QUADS_MODE" = "import" ]; then
+    echo -e "${YELLOW}QUADS mode is 'import' - cluster already exists${NC}"
+    echo "Jetlag will skip deployment and use existing cluster"
     echo ""
+    echo "Configure cluster connection details:"
+    echo ""
+
+    # Only ask for cluster access details
+    echo "1. Bastion Host (required for import mode)"
+    while true; do
+        prompt_with_default "   Bastion host" "$EXISTING_BASTION" NEW_BASTION
+        if [[ -n "$NEW_BASTION" ]]; then
+            break
+        else
+            echo -e "   ${RED}Bastion host is required for import mode${NC}"
+        fi
+    done
+    echo ""
+
+    echo "2. Kubeconfig Path"
+    prompt_with_default "   Kubeconfig path" "$EXISTING_KUBECONFIG" NEW_KUBECONFIG
+    echo ""
+
+    # Set deployment-specific fields to defaults (not used for import)
+    NEW_CLUSTER_TYPE="${EXISTING_CLUSTER_TYPE:-mno}"
+    NEW_WORKER_COUNT="${EXISTING_WORKER_COUNT:-3}"
+    NEW_OCP_BUILD="${EXISTING_OCP_BUILD:-ga}"
+    NEW_OCP_VERSION="${EXISTING_OCP_VERSION:-latest-4.20}"
+    NEW_NETWORK_STACK="${EXISTING_NETWORK_STACK:-ipv4}"
+    NEW_PULL_SECRET="${EXISTING_PULL_SECRET}"
+
 else
-    NEW_WORKER_COUNT="0"
+    # QUADS mode is allocate - need to deploy new cluster
+    echo -e "${GREEN}QUADS mode is 'allocate' - will deploy new cluster${NC}"
+    echo ""
+
+    # Cluster type
+    echo "1. Cluster Type"
+    echo "   mno - Multi-Node OpenShift (3 control + N workers)"
+    echo "   sno - Single-Node OpenShift"
+    while true; do
+        prompt_with_default "   Cluster type" "$EXISTING_CLUSTER_TYPE" NEW_CLUSTER_TYPE
+        if [[ "$NEW_CLUSTER_TYPE" == "mno" ]] || [[ "$NEW_CLUSTER_TYPE" == "sno" ]]; then
+            break
+        else
+            echo -e "   ${RED}Invalid cluster type. Please enter 'mno' or 'sno'${NC}"
+        fi
+    done
+    echo ""
+
+    # Worker count (for MNO)
+    if [ "$NEW_CLUSTER_TYPE" = "mno" ]; then
+        echo "2. Worker Node Count"
+        while true; do
+            prompt_with_default "   Worker count" "$EXISTING_WORKER_COUNT" NEW_WORKER_COUNT
+            if [[ "$NEW_WORKER_COUNT" =~ ^[0-9]+$ ]] && [[ "$NEW_WORKER_COUNT" -ge 0 ]]; then
+                break
+            else
+                echo -e "   ${RED}Worker count must be a non-negative number${NC}"
+            fi
+        done
+        echo ""
+    else
+        NEW_WORKER_COUNT="0"
+    fi
+
+    # OCP Build
+    echo "3. OpenShift Build Type"
+    echo "   ga - General Availability (stable)"
+    echo "   dev - Development builds"
+    echo "   ci - CI builds"
+    while true; do
+        prompt_with_default "   OCP build" "$EXISTING_OCP_BUILD" NEW_OCP_BUILD
+        if [[ "$NEW_OCP_BUILD" == "ga" ]] || [[ "$NEW_OCP_BUILD" == "dev" ]] || [[ "$NEW_OCP_BUILD" == "ci" ]]; then
+            break
+        else
+            echo -e "   ${RED}Invalid build type. Please enter 'ga', 'dev', or 'ci'${NC}"
+        fi
+    done
+    echo ""
+
+    # OCP Version
+    echo "4. OpenShift Version"
+    echo "   e.g., latest-4.20, 4.18.1"
+    prompt_with_default "   OCP version" "$EXISTING_OCP_VERSION" NEW_OCP_VERSION
+    echo ""
+
+    # Network stack
+    echo "5. Network Stack"
+    echo "   ipv4, ipv6, dual"
+    while true; do
+        prompt_with_default "   Network stack" "$EXISTING_NETWORK_STACK" NEW_NETWORK_STACK
+        if [[ "$NEW_NETWORK_STACK" == "ipv4" ]] || [[ "$NEW_NETWORK_STACK" == "ipv6" ]] || [[ "$NEW_NETWORK_STACK" == "dual" ]]; then
+            break
+        else
+            echo -e "   ${RED}Invalid network stack. Please enter 'ipv4', 'ipv6', or 'dual'${NC}"
+        fi
+    done
+    echo ""
+
+    # Pull secret (required for deployment)
+    echo "6. Pull Secret Path (required for deployment)"
+    while true; do
+        prompt_with_default "   Pull secret path" "$EXISTING_PULL_SECRET" NEW_PULL_SECRET
+        if [[ -n "$NEW_PULL_SECRET" ]]; then
+            break
+        else
+            echo -e "   ${RED}Pull secret path is required for cluster deployment${NC}"
+        fi
+    done
+    echo ""
+
+    # Bastion/kubeconfig not needed for new deployment (will be created)
+    NEW_BASTION=""
+    NEW_KUBECONFIG="${EXISTING_KUBECONFIG:-/root/mno/kubeconfig}"
 fi
-
-# OCP Build
-echo "3. OpenShift Build Type"
-echo "   ga - General Availability (stable)"
-echo "   dev - Development builds"
-echo "   ci - CI builds"
-prompt_with_default "   OCP build" "$EXISTING_OCP_BUILD" NEW_OCP_BUILD
-echo ""
-
-# OCP Version
-echo "4. OpenShift Version"
-echo "   e.g., latest-4.20, 4.18.1"
-prompt_with_default "   OCP version" "$EXISTING_OCP_VERSION" NEW_OCP_VERSION
-echo ""
-
-# Network stack
-echo "5. Network Stack"
-echo "   ipv4, ipv6, dual"
-prompt_with_default "   Network stack" "$EXISTING_NETWORK_STACK" NEW_NETWORK_STACK
-echo ""
-
-# Pull secret
-echo "6. Pull Secret Path"
-echo "   Path to OpenShift pull secret file"
-prompt_with_default "   Pull secret path" "$EXISTING_PULL_SECRET" NEW_PULL_SECRET
-echo ""
-
-# For cluster-ready mode
-echo "7. Bastion Host (leave empty for new deployment)"
-prompt_with_default "   Bastion host" "$EXISTING_BASTION" NEW_BASTION
-echo ""
-
-echo "8. Kubeconfig Path"
-prompt_with_default "   Kubeconfig path" "$EXISTING_KUBECONFIG" NEW_KUBECONFIG
-echo ""
 
 # Step 4: Update config.json
 echo -e "${BLUE}Updating config.json...${NC}"
@@ -169,6 +245,16 @@ jq --arg cluster_type "$NEW_CLUSTER_TYPE" \
 mv "${CONFIG_JSON}.tmp" "$CONFIG_JSON"
 
 echo -e "${GREEN}✓ Jetlag configuration saved to config.json${NC}"
+echo ""
+
+# Validate the configuration
+if ! validate_jetlag_config "$CONFIG_JSON"; then
+    echo -e "${RED}Configuration validation failed!${NC}"
+    echo "Please correct the errors and run configure again."
+    echo ""
+    exit 1
+fi
+
 echo ""
 echo "Next steps:"
 echo "  - Configure other modules (crucible, regulus)"

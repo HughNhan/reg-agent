@@ -17,6 +17,9 @@ YELLOW='\033[1;33m'
 BLUE='\033[0;36m'
 NC='\033[0m'
 
+# Load validation library
+source "${REG_AGENT_ROOT}/modules/lib/validate-config.sh"
+
 # Ensure jq is available
 if ! command -v jq &> /dev/null; then
     echo -e "${RED}ERROR: jq is required${NC}"
@@ -93,21 +96,42 @@ prompt_with_default() {
     eval "$var_name='$value'"
 }
 
-# Mode
+# Mode (with validation)
 echo "1. QUADS Mode"
 echo "   allocate - Request new allocation"
 echo "   import - Import existing allocation"
-prompt_with_default "   Mode" "$EXISTING_MODE" NEW_MODE
+while true; do
+    prompt_with_default "   Mode" "$EXISTING_MODE" NEW_MODE
+    if [[ "$NEW_MODE" == "allocate" ]] || [[ "$NEW_MODE" == "import" ]]; then
+        break
+    else
+        echo -e "   ${RED}Invalid mode. Please enter 'allocate' or 'import'${NC}"
+    fi
+done
 echo ""
 
-# API Server
+# API Server (required)
 echo "2. QUADS API Server"
-prompt_with_default "   API Server" "$EXISTING_API_SERVER" NEW_API_SERVER
+while true; do
+    prompt_with_default "   API Server" "$EXISTING_API_SERVER" NEW_API_SERVER
+    if [[ -n "$NEW_API_SERVER" ]]; then
+        break
+    else
+        echo -e "   ${RED}API Server is required${NC}"
+    fi
+done
 echo ""
 
-# Username
+# Username (required)
 echo "3. QUADS Username"
-prompt_with_default "   Username" "$EXISTING_USERNAME" NEW_USERNAME
+while true; do
+    prompt_with_default "   Username" "$EXISTING_USERNAME" NEW_USERNAME
+    if [[ -n "$NEW_USERNAME" ]]; then
+        break
+    else
+        echo -e "   ${RED}Username is required${NC}"
+    fi
+done
 echo ""
 
 # Password (don't show existing)
@@ -116,33 +140,83 @@ read -sp "   Password (hidden): " NEW_PASSWORD
 echo ""
 echo ""
 
-# Lab
+# Lab (with validation)
 echo "5. Lab"
 echo "   scalelab or performancelab"
-prompt_with_default "   Lab" "$EXISTING_LAB" NEW_LAB
+while true; do
+    prompt_with_default "   Lab" "$EXISTING_LAB" NEW_LAB
+    if [[ "$NEW_LAB" == "scalelab" ]] || [[ "$NEW_LAB" == "performancelab" ]]; then
+        break
+    else
+        echo -e "   ${RED}Invalid lab. Please enter 'scalelab' or 'performancelab'${NC}"
+    fi
+done
 echo ""
 
-# Num hosts
-echo "6. Number of Hosts"
-prompt_with_default "   Num hosts" "$EXISTING_NUM_HOSTS" NEW_NUM_HOSTS
-echo ""
+# Mode-specific configuration
+if [ "$NEW_MODE" = "import" ]; then
+    # Import mode: Ask for cloud name (required)
+    EXISTING_CLOUD_NAME=$(jq -r '.quads.cloud_name // ""' "$CONFIG_JSON")
+    echo "6. Cloud Name (to import)"
+    echo "   Existing QUADS cloud to import (e.g., cloud23)"
+    while true; do
+        prompt_with_default "   Cloud name" "$EXISTING_CLOUD_NAME" NEW_CLOUD_NAME
+        if [[ -n "$NEW_CLOUD_NAME" ]]; then
+            break
+        else
+            echo -e "   ${RED}Cloud name is required for import mode${NC}"
+        fi
+    done
+    echo ""
 
-# Preferred model
-echo "7. Preferred Model"
-echo "   e.g., r750, r740xd"
-prompt_with_default "   Model" "$EXISTING_PREFERRED_MODEL" NEW_PREFERRED_MODEL
-echo ""
+    # Set allocate-specific fields to empty for import mode
+    NEW_NUM_HOSTS=""
+    NEW_PREFERRED_MODEL=""
+    NEW_WORKLOAD_NAME=""
+    NEW_WIPE_DISKS="no"
 
-# Workload name
-echo "8. Workload Name"
-prompt_with_default "   Workload name" "$EXISTING_WORKLOAD_NAME" NEW_WORKLOAD_NAME
-echo ""
+else
+    # Allocate mode: Ask for allocation parameters
 
-# Wipe disks
-echo "9. Wipe Disks"
-echo "   yes or no"
-prompt_with_default "   Wipe disks" "$EXISTING_WIPE_DISKS" NEW_WIPE_DISKS
-echo ""
+    # Num hosts (must be numeric)
+    echo "6. Number of Hosts"
+    while true; do
+        prompt_with_default "   Num hosts" "$EXISTING_NUM_HOSTS" NEW_NUM_HOSTS
+        if [[ "$NEW_NUM_HOSTS" =~ ^[0-9]+$ ]] && [[ "$NEW_NUM_HOSTS" -gt 0 ]]; then
+            break
+        else
+            echo -e "   ${RED}Number of hosts must be a positive number${NC}"
+        fi
+    done
+    echo ""
+
+    # Preferred model
+    echo "7. Preferred Model"
+    echo "   e.g., r750, r740xd"
+    prompt_with_default "   Model" "$EXISTING_PREFERRED_MODEL" NEW_PREFERRED_MODEL
+    echo ""
+
+    # Workload name
+    echo "8. Workload Name"
+    prompt_with_default "   Workload name" "$EXISTING_WORKLOAD_NAME" NEW_WORKLOAD_NAME
+    echo ""
+
+    # Wipe disks (with validation)
+    echo "9. Wipe Disks"
+    echo "   yes or no"
+    while true; do
+        prompt_with_default "   Wipe disks" "$EXISTING_WIPE_DISKS" NEW_WIPE_DISKS
+        if [[ "$NEW_WIPE_DISKS" == "yes" ]] || [[ "$NEW_WIPE_DISKS" == "no" ]]; then
+            break
+        else
+            echo -e "   ${RED}Invalid value. Please enter 'yes' or 'no'${NC}"
+        fi
+    done
+    echo ""
+
+    # Set cloud_name to empty for allocate mode (will be assigned by QUADS)
+    NEW_CLOUD_NAME=""
+fi
 
 # Lab SSH password (shared setting)
 EXISTING_LAB_PASSWORD=$(jq -r '.lab.ssh_password // ""' "$CONFIG_JSON")
@@ -159,12 +233,22 @@ echo ""
 echo -e "${BLUE}Updating config.json...${NC}"
 
 # Create temporary file with updated QUADS and lab sections
+# Handle num_hosts as string for import mode (empty) or number for allocate mode
+if [ -z "$NEW_NUM_HOSTS" ]; then
+    NUM_HOSTS_ARG="--arg num_hosts \"\""
+    NUM_HOSTS_ASSIGN='.quads.num_hosts = $num_hosts'
+else
+    NUM_HOSTS_ARG="--argjson num_hosts \"$NEW_NUM_HOSTS\""
+    NUM_HOSTS_ASSIGN='.quads.num_hosts = $num_hosts'
+fi
+
 jq --arg mode "$NEW_MODE" \
    --arg api_server "$NEW_API_SERVER" \
    --arg username "$NEW_USERNAME" \
    --arg password "$NEW_PASSWORD" \
    --arg lab "$NEW_LAB" \
-   --argjson num_hosts "$NEW_NUM_HOSTS" \
+   --arg cloud_name "$NEW_CLOUD_NAME" \
+   --arg num_hosts "$NEW_NUM_HOSTS" \
    --arg model "$NEW_PREFERRED_MODEL" \
    --arg workload "$NEW_WORKLOAD_NAME" \
    --arg wipe "$NEW_WIPE_DISKS" \
@@ -174,6 +258,7 @@ jq --arg mode "$NEW_MODE" \
     .quads.username = $username |
     .quads.password = $password |
     .quads.lab = $lab |
+    .quads.cloud_name = $cloud_name |
     .quads.num_hosts = $num_hosts |
     .quads.preferred_model = $model |
     .quads.workload_name = $workload |
@@ -184,6 +269,16 @@ jq --arg mode "$NEW_MODE" \
 mv "${CONFIG_JSON}.tmp" "$CONFIG_JSON"
 
 echo -e "${GREEN}✓ QUADS configuration saved to config.json${NC}"
+echo ""
+
+# Validate the configuration
+if ! validate_quads_config "$CONFIG_JSON"; then
+    echo -e "${RED}Configuration validation failed!${NC}"
+    echo "Please correct the errors and run configure again."
+    echo ""
+    exit 1
+fi
+
 echo ""
 echo "Next steps:"
 echo "  - Configure other modules (jetlag, crucible, regulus)"

@@ -47,9 +47,11 @@ source "${ROOT_DIR}/modules/lib/check-dependencies.sh"
 # Input Resolution
 #------------------------------------------------------------------------------
 
+# Set REG_AGENT_ROOT BEFORE loading JSON config (json-config.sh needs it)
+export REG_AGENT_ROOT="$ROOT_DIR"
+
 # Load JSON config early to get QUADS_* variables
 source "$ROOT_DIR/modules/lib/json-config.sh"
-export REG_AGENT_ROOT="$ROOT_DIR"
 json_export_env ".quads" "QUADS"
 
 # Priority 1: Command-line arguments (make import CLOUD_NAME=...)
@@ -61,6 +63,12 @@ if [[ -n "$CLOUD_NAME" ]] && [[ -n "$LAB" ]]; then
 elif [[ -f "$SCRIPT_DIR/generated/config/import.env" ]]; then
     log "Loading allocation details from import configuration..."
     source "$SCRIPT_DIR/generated/config/import.env"
+fi
+
+# If CLOUD_NAME not set from command-line or import.env, use QUADS_CLOUD_NAME from JSON
+if [ -z "$CLOUD_NAME" ] && [ -n "$QUADS_CLOUD_NAME" ]; then
+    CLOUD_NAME="$QUADS_CLOUD_NAME"
+    log "Using CLOUD_NAME from config.json: $CLOUD_NAME"
 fi
 
 # If LAB not set from command-line or import.env, use QUADS_LAB from JSON
@@ -280,19 +288,19 @@ cat > "$STATE_FILE" << EOF
 # Imported QUADS allocation
 # Imported: $(date)
 
-CLOUD_NAME=${CLOUD_NAME}
-ASSIGNMENT_ID=${ASSIGNMENT_ID}
-QUADS_METHOD=quads-ssm
-LAB=${LAB}
+CLOUD_NAME="${CLOUD_NAME}"
+ASSIGNMENT_ID="${ASSIGNMENT_ID}"
+QUADS_METHOD="quads-ssm"
+LAB="${LAB}"
 
 # Import metadata
-DEPLOYMENT_METHOD=imported
-QUADS_IMPORT_COMPLETED=true
-QUADS_IMPORT_TIMESTAMP=$(date -u +%Y%m%d_%H%M%S)
-ASSIGNMENT_OWNER=${ASSIGNMENT_OWNER}
-ASSIGNMENT_DESC=${ASSIGNMENT_DESC}
-NUM_HOSTS=${HOST_COUNT}
-WIPE_DISKS=${WIPE_DISKS}
+DEPLOYMENT_METHOD="imported"
+QUADS_IMPORT_COMPLETED="true"
+QUADS_IMPORT_TIMESTAMP="$(date -u +%Y%m%d_%H%M%S)"
+ASSIGNMENT_OWNER="${ASSIGNMENT_OWNER}"
+ASSIGNMENT_DESC="${ASSIGNMENT_DESC}"
+NUM_HOSTS="${HOST_COUNT}"
+WIPE_DISKS="${WIPE_DISKS}"
 EOF
 
 log "${GREEN}✓ State saved: ${STATE_FILE}${NC}"
@@ -304,26 +312,26 @@ log "Syncing to global state..."
 if [ ! -f "${ROOT_DIR}/vars/state.env" ]; then
     cat > "${ROOT_DIR}/vars/state.env" << EOF
 # Phase 1: QUADS Import (added $(date))
-CLOUD_NAME=${CLOUD_NAME}
-ASSIGNMENT_ID=${ASSIGNMENT_ID}
-QUADS_METHOD=quads-ssm
-LAB=${LAB}
-DEPLOYMENT_METHOD=imported
-QUADS_IMPORT_COMPLETED=true
-QUADS_IMPORT_TIMESTAMP=$(date -u +%Y%m%d_%H%M%S)
+CLOUD_NAME="${CLOUD_NAME}"
+ASSIGNMENT_ID="${ASSIGNMENT_ID}"
+QUADS_METHOD="quads-ssm"
+LAB="${LAB}"
+DEPLOYMENT_METHOD="imported"
+QUADS_IMPORT_COMPLETED="true"
+QUADS_IMPORT_TIMESTAMP="$(date -u +%Y%m%d_%H%M%S)"
 EOF
 else
     # Append to existing state
     cat >> "${ROOT_DIR}/vars/state.env" << EOF
 
 # Phase 1: QUADS Import (added $(date))
-CLOUD_NAME=${CLOUD_NAME}
-ASSIGNMENT_ID=${ASSIGNMENT_ID}
-QUADS_METHOD=quads-ssm
-LAB=${LAB}
-DEPLOYMENT_METHOD=imported
-QUADS_IMPORT_COMPLETED=true
-QUADS_IMPORT_TIMESTAMP=$(date -u +%Y%m%d_%H%M%S)
+CLOUD_NAME="${CLOUD_NAME}"
+ASSIGNMENT_ID="${ASSIGNMENT_ID}"
+QUADS_METHOD="quads-ssm"
+LAB="${LAB}"
+DEPLOYMENT_METHOD="imported"
+QUADS_IMPORT_COMPLETED="true"
+QUADS_IMPORT_TIMESTAMP="$(date -u +%Y%m%d_%H%M%S)"
 EOF
 fi
 

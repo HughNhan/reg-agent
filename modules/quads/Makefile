@@ -159,23 +159,29 @@ allocate:
 	@echo -e "$(BLUE)=====================================$(NC)"
 	@echo -e "$(BLUE)Testing Phase 1: QUADS SSM Allocation$(NC)"
 	@echo -e "$(BLUE)=====================================$(NC)"
-	@echo -e "$(GREEN)✓ Allocation complete$(NC)"
 	@echo ""
+	@$(ALLOCATE_SCRIPT)
 
 import:
 	@echo -e "$(BLUE)=====================================$(NC)"
 	@echo -e "$(BLUE)Import Existing QUADS Allocation$(NC)"
 	@echo -e "$(BLUE)=====================================$(NC)"
+	@echo ""
+	@$(IMPORT_SCRIPT)
 
 validate:
 	@echo -e "$(BLUE)=====================================$(NC)"
 	@echo -e "$(BLUE)QUADS Assignment Validation$(NC)"
 	@echo -e "$(BLUE)=====================================$(NC)"
+	@echo ""
+	@$(VALIDATE_SCRIPT)
 
 deallocate:
 	@echo -e "$(BLUE)=====================================$(NC)"
 	@echo -e "$(BLUE)QUADS Assignment Deallocation$(NC)"
 	@echo -e "$(BLUE)=====================================$(NC)"
+	@echo ""
+	@$(DEALLOCATE_SCRIPT)
 
 deallocate-by-cloud:
 	@echo -e "$(BLUE)=====================================$(NC)"
