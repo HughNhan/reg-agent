@@ -165,7 +165,7 @@ deploy:
 			echo "Mode: Full (QUADS + Jetlag + Crucible + Regulus)"; \
 			echo ""; \
 			echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"; \
-			echo "Phase 1: QUADS - Allocate bare metal"; \
+			echo "Phase 1: QUADS - Allocate/Import bare metal"; \
 			echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"; \
 			$(MAKE) -C modules/quads init; \
 			if [ -f modules/quads/generated/state/current.env ]; then \
@@ -175,10 +175,38 @@ deploy:
 					echo "  Cloud: $$CLOUD_NAME"; \
 					echo "  Assignment: $$ASSIGNMENT_ID"; \
 				else \
-					$(MAKE) -C modules/quads allocate; \
+					QUADS_MODE=$$(jq -r '.quads.mode // "allocate"' vars/config.json); \
+					if [ "$$QUADS_MODE" = "import" ]; then \
+						echo "QUADS mode: import"; \
+						CLOUD_NAME=$$(jq -r '.quads.cloud_name // empty' vars/config.json); \
+						LAB=$$(jq -r '.quads.lab // empty' vars/config.json); \
+						if [ -n "$$CLOUD_NAME" ] && [ -n "$$LAB" ]; then \
+							$(MAKE) -C modules/quads import CLOUD_NAME=$$CLOUD_NAME LAB=$$LAB; \
+						else \
+							echo -e "$(RED)Error: Import mode requires cloud_name and lab in config.json$(NC)"; \
+							exit 1; \
+						fi; \
+					else \
+						echo "QUADS mode: allocate"; \
+						$(MAKE) -C modules/quads allocate; \
+					fi; \
 				fi; \
 			else \
-				$(MAKE) -C modules/quads allocate; \
+				QUADS_MODE=$$(jq -r '.quads.mode // "allocate"' vars/config.json); \
+				if [ "$$QUADS_MODE" = "import" ]; then \
+					echo "QUADS mode: import"; \
+					CLOUD_NAME=$$(jq -r '.quads.cloud_name // empty' vars/config.json); \
+					LAB=$$(jq -r '.quads.lab // empty' vars/config.json); \
+					if [ -n "$$CLOUD_NAME" ] && [ -n "$$LAB" ]; then \
+						$(MAKE) -C modules/quads import CLOUD_NAME=$$CLOUD_NAME LAB=$$LAB; \
+					else \
+						echo -e "$(RED)Error: Import mode requires cloud_name and lab in config.json$(NC)"; \
+						exit 1; \
+					fi; \
+				else \
+					echo "QUADS mode: allocate"; \
+					$(MAKE) -C modules/quads allocate; \
+				fi; \
 			fi; \
 			echo ""; \
 			echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"; \
