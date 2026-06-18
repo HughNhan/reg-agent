@@ -3,7 +3,7 @@
   "title": "reg-agent Configuration Schema",
   "description": "Configuration schema for reg-agent CI/CD orchestrator",
   "type": "object",
-  "required": ["deployment_mode", "quads"],
+  "required": ["quads"],
   "properties": {
     "comment": {
       "type": "string",
@@ -12,11 +12,6 @@
     "version": {
       "type": "string",
       "description": "Configuration version"
-    },
-    "deployment_mode": {
-      "type": "string",
-      "enum": ["full", "cluster-ready"],
-      "description": "Deployment mode: full (QUADS+Jetlag+Crucible+Regulus) or cluster-ready (user provides cluster)"
     },
     "quads": {
       "type": "object",
@@ -29,10 +24,12 @@
         },
         "api_server": {
           "type": "string",
-          "description": "QUADS API server URL"
+          "minLength": 1,
+          "description": "QUADS API server hostname (without https:// - ansible adds it automatically)"
         },
         "username": {
           "type": "string",
+          "minLength": 1,
           "description": "QUADS username"
         },
         "password": {
@@ -43,10 +40,14 @@
           "type": "string",
           "description": "QUADS API token (preferred over password)"
         },
+        "user_domain": {
+          "type": "string",
+          "description": "User email domain (e.g., redhat.com)"
+        },
         "lab": {
           "type": "string",
-          "enum": ["scalelab", "performancelab"],
-          "description": "Lab location"
+          "enum": ["scalelab", "performancelab", "byol"],
+          "description": "Lab location (byol = bring your own lab, no QUADS API needed)"
         },
         "num_hosts": {
           "type": "integer",
@@ -55,27 +56,54 @@
         },
         "preferred_model": {
           "type": "string",
+          "minLength": 1,
           "description": "Preferred hardware model (e.g., r750, r740xd)"
         },
         "workload_name": {
           "type": "string",
+          "minLength": 1,
           "description": "Workload identifier for the allocation"
+        },
+        "short_description": {
+          "type": "string",
+          "description": "Short description of the allocation purpose"
         },
         "wipe_disks": {
           "type": "string",
           "enum": ["yes", "no"],
-          "description": "Whether to wipe disks on allocation"
+          "description": "Whether to wipe disks on allocation (use 'yes' or 'no', not boolean true/false)"
         },
         "cloud_name": {
           "type": "string",
+          "minLength": 1,
           "description": "Cloud name for import mode (e.g., cloud23)"
         }
       },
-      "required": ["api_server", "username", "lab"],
+      "required": ["mode", "lab"],
       "allOf": [
         {
           "if": {
-            "properties": { "mode": { "const": "allocate" } }
+            "properties": { "lab": { "const": "byol" } },
+            "required": ["lab"]
+          },
+          "then": {
+            "properties": { "mode": { "const": "import" } },
+            "required": ["mode"]
+          }
+        },
+        {
+          "if": {
+            "properties": { "lab": { "enum": ["scalelab", "performancelab"] } },
+            "required": ["lab"]
+          },
+          "then": {
+            "required": ["api_server", "username"]
+          }
+        },
+        {
+          "if": {
+            "properties": { "mode": { "const": "allocate" } },
+            "required": ["mode"]
           },
           "then": {
             "required": ["num_hosts", "preferred_model", "workload_name"]
@@ -83,7 +111,10 @@
         },
         {
           "if": {
-            "properties": { "mode": { "const": "import" } }
+            "allOf": [
+              { "properties": { "mode": { "const": "import" } }, "required": ["mode"] },
+              { "properties": { "lab": { "enum": ["scalelab", "performancelab"] } }, "required": ["lab"] }
+            ]
           },
           "then": {
             "required": ["cloud_name"]
@@ -95,36 +126,62 @@
       "type": "object",
       "description": "Jetlag cluster deployment configuration",
       "properties": {
+        "_comment_allocate": {
+          "type": "string",
+          "description": "For allocate mode, provide: cluster_type, worker_node_count, ocp_build, ocp_version, network_stack, pull_secret_path, bmc_password"
+        },
+        "_comment_import": {
+          "type": "string",
+          "description": "For import mode, provide: bastion_host, kubeconfig_path (cluster_type not needed, Regulus will discover)"
+        },
         "cluster_type": {
           "type": "string",
-          "enum": ["mno", "sno"],
-          "description": "Cluster type: mno (multi-node) or sno (single-node)"
+          "enum": ["mno", "sno", "bm"],
+          "description": "Cluster type: mno (multi-node), sno (single-node), or bm (bare metal) - only required for allocate mode"
         },
         "worker_node_count": {
           "type": "integer",
           "minimum": 0,
-          "description": "Number of worker nodes (for MNO)"
+          "description": "Number of worker nodes (for MNO in allocate mode)"
         },
         "ocp_build": {
           "type": "string",
-          "enum": ["ga", "dev", "ci"],
-          "description": "OpenShift build type"
+          "enum": ["ga", "nightly", "rc"],
+          "description": "OpenShift build type (for allocate mode)"
         },
         "ocp_version": {
           "type": "string",
-          "description": "OpenShift version (e.g., latest-4.20, 4.18.1)"
+          "description": "OpenShift version (e.g., latest-4.20, 4.18.1) - for allocate mode"
         },
         "network_stack": {
           "type": "string",
           "enum": ["ipv4", "ipv6", "dual"],
-          "description": "Network stack configuration"
+          "description": "Network stack configuration (for allocate mode)"
+        },
+        "ipv6_mode": {
+          "type": "string",
+          "description": "IPv6 configuration mode (when using ipv6 network_stack)"
         },
         "pull_secret_path": {
           "type": "string",
-          "description": "Path to OpenShift pull secret file"
+          "description": "Path to OpenShift pull secret file (for allocate mode)"
+        },
+        "bmc_password": {
+          "type": "string",
+          "description": "BMC/IPMI password for bare metal hosts (for allocate mode)"
+        },
+        "bastion_host": {
+          "type": "string",
+          "minLength": 1,
+          "description": "Bastion host FQDN or IP (required for import mode)"
+        },
+        "kubeconfig_path": {
+          "type": "string",
+          "minLength": 1,
+          "description": "Path to kubeconfig file on bastion (required for import mode)"
         }
       },
-      "required": ["cluster_type", "ocp_build", "ocp_version", "network_stack"]
+      "required": []
     },
     "crucible": {
       "type": "object",
@@ -157,8 +214,13 @@
           "type": "string",
           "description": "SSH user for controller host"
         },
+        "password": {
+          "type": "string",
+          "description": "SSH password for controller host (optional if using key-based auth)"
+        },
         "other_host": {
           "type": "string",
+          "minLength": 1,
           "description": "Custom controller hostname (required if target=other)"
         }
       },
@@ -185,11 +247,11 @@
         "jobs": {
           "type": "string",
           "pattern": "^(\\./[^ ]+( \\./[^ ]+)*)?$",
-          "description": "Space-separated test job paths (e.g., './SANDBOX' or './1_GROUP/NO-PAO/4IP ./2_GROUP/PAO/6IP')"
+          "description": "Space-separated test job paths (e.g., './1_GROUP/NO-PAO/4IP/INTER-NODE/TCP/2-POD' or './1_GROUP/NO-PAO/4IP ./2_GROUP/PAO/6IP')"
         },
         "duration": {
-          "type": "string",
-          "pattern": "^[0-9]+$",
+          "type": "integer",
+          "minimum": 1,
           "description": "Test duration in seconds"
         },
         "tag": {
@@ -197,8 +259,8 @@
           "description": "Test identifier tag"
         },
         "num_samples": {
-          "type": "string",
-          "pattern": "^[0-9]+$",
+          "type": "integer",
+          "minimum": 1,
           "description": "Number of test samples to run"
         },
         "test_suite": {
@@ -209,13 +271,56 @@
     },
     "lab": {
       "type": "object",
-      "description": "Lab environment configuration",
+      "description": "Lab environment SSH configuration (optional, has defaults)",
       "properties": {
+        "ssh_username": {
+          "type": "string",
+          "default": "root",
+          "description": "Default SSH username for lab machines (defaults to 'root' if omitted)"
+        },
         "ssh_password": {
           "type": "string",
-          "description": "Default SSH password for lab machines"
+          "description": "Default SSH password for lab machines (optional, SSH keys preferred)"
         }
       }
     }
-  }
+  },
+  "allOf": [
+    {
+      "if": {
+        "properties": {
+          "quads": {
+            "properties": { "mode": { "const": "allocate" } },
+            "required": ["mode"]
+          }
+        },
+        "required": ["quads"]
+      },
+      "then": {
+        "properties": {
+          "jetlag": {
+            "required": ["cluster_type", "ocp_build", "ocp_version", "network_stack"]
+          }
+        }
+      }
+    },
+    {
+      "if": {
+        "properties": {
+          "quads": {
+            "properties": { "mode": { "const": "import" } },
+            "required": ["mode"]
+          }
+        },
+        "required": ["quads"]
+      },
+      "then": {
+        "properties": {
+          "jetlag": {
+            "required": ["bastion_host", "kubeconfig_path"]
+          }
+        }
+      }
+    }
+  ]
 }

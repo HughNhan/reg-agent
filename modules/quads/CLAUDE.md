@@ -634,7 +634,7 @@ LAB=scalelab
 **Input** (via -e flags):
 - `workload_name`: Identifier for your reservation
 - `num_hosts`: Number of machines
-- `wipe`: true/false for disk wiping
+- `wipe`: true/false for disk wiping (reg-agent converts `wipe_disks="yes"/"no"` to this boolean)
 
 **Output** (JSON response):
 ```json

@@ -3,7 +3,7 @@
 
 SHELL := /bin/bash
 .SHELLFLAGS := -e -o pipefail -c
-.PHONY: all help configure deploy run validate validate-config save-config clean status info configure-tests
+.PHONY: all help deploy run validate validate-config save-config clean status info configure-tests
 
 # Colors
 RED := \033[0;31m
@@ -53,6 +53,7 @@ help:
 	@echo "MAIN OPERATIONS"
 	@echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
 	@echo ""
+	@echo "  all              Complete pipeline: deploy + run + validate (one command)"
 	@echo "  deploy           Deploy infrastructure (requires vars/config.json)"
 	@echo "  run              Execute Regulus tests (requires vars/config.json)"
 	@echo "  validate         Validate test results"
@@ -75,14 +76,17 @@ help:
 	@echo "EXAMPLES"
 	@echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
 	@echo ""
-	@echo "  # Quick start (interactive)"
+	@echo "  # Complete pipeline in one command"
+	@echo "  make -C modules/quads configure && make all"
+	@echo ""
+	@echo "  # Quick start (step-by-step)"
 	@echo "  make -C modules/quads configure && make deploy"
 	@echo ""
-	@echo "  # Configure all modules, then deploy"
+	@echo "  # Configure all modules, then run complete pipeline"
 	@echo "  for m in quads jetlag crucible regulus; do \\"
 	@echo "    make -C modules/\$$\$$m configure; \\"
 	@echo "  done"
-	@echo "  make deploy"
+	@echo "  make all"
 	@echo ""
 	@echo "  # Re-run tests with existing deployment"
 	@echo "  make run validate"
@@ -159,126 +163,122 @@ deploy:
 	@echo ""
 	@export REG_AGENT_ROOT=$$(pwd) && \
 	source modules/lib/json-config.sh && \
-	export DEPLOY_MODE=$$(jq -r '.deployment_mode' vars/config.json) && \
-	case "$$DEPLOY_MODE" in \
-		full) \
-			echo "Mode: Full (QUADS + Jetlag + Crucible + Regulus)"; \
-			echo ""; \
-			echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"; \
-			echo "Phase 1: QUADS - Allocate/Import bare metal"; \
-			echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"; \
-			$(MAKE) -C modules/quads init; \
-			if [ -f modules/quads/generated/state/current.env ]; then \
-				source modules/quads/generated/state/current.env 2>/dev/null; \
-				if [ -n "$$CLOUD_NAME" ]; then \
-					echo -e "$(GREEN)✓ QUADS allocation already exists, skipping Phase 1$(NC)"; \
-					echo "  Cloud: $$CLOUD_NAME"; \
-					echo "  Assignment: $$ASSIGNMENT_ID"; \
+	export QUADS_MODE=$$(jq -r '.quads.mode // "allocate"' vars/config.json) && \
+	echo "Mode: $$QUADS_MODE (QUADS → Jetlag → Crucible → Regulus)"; \
+	echo ""; \
+	echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"; \
+	echo "Phase 1: QUADS - $$QUADS_MODE bare metal"; \
+	echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"; \
+	$(MAKE) -C modules/quads init; \
+	if [ -f modules/quads/generated/state/current.env ]; then \
+		source modules/quads/generated/state/current.env 2>/dev/null; \
+		if [ -n "$$CLOUD_NAME" ]; then \
+			echo -e "$(GREEN)✓ QUADS allocation already exists, skipping Phase 1$(NC)"; \
+			echo "  Cloud: $$CLOUD_NAME"; \
+			echo "  Assignment: $$ASSIGNMENT_ID"; \
+		else \
+			if [ "$$QUADS_MODE" = "import" ]; then \
+				echo "QUADS mode: import"; \
+				CLOUD_NAME=$$(jq -r '.quads.cloud_name // empty' vars/config.json); \
+				LAB=$$(jq -r '.quads.lab // empty' vars/config.json); \
+				if [ "$$LAB" = "byol" ]; then \
+					echo -e "$(GREEN)✓ BYOL mode - skipping QUADS import (no QUADS API)$(NC)"; \
+					echo "  Lab: $$LAB"; \
+				elif [ -n "$$CLOUD_NAME" ] && [ -n "$$LAB" ]; then \
+					$(MAKE) -C modules/quads import CLOUD_NAME=$$CLOUD_NAME LAB=$$LAB; \
 				else \
-					QUADS_MODE=$$(jq -r '.quads.mode // "allocate"' vars/config.json); \
-					if [ "$$QUADS_MODE" = "import" ]; then \
-						echo "QUADS mode: import"; \
-						CLOUD_NAME=$$(jq -r '.quads.cloud_name // empty' vars/config.json); \
-						LAB=$$(jq -r '.quads.lab // empty' vars/config.json); \
-						if [ -n "$$CLOUD_NAME" ] && [ -n "$$LAB" ]; then \
-							$(MAKE) -C modules/quads import CLOUD_NAME=$$CLOUD_NAME LAB=$$LAB; \
-						else \
-							echo -e "$(RED)Error: Import mode requires cloud_name and lab in config.json$(NC)"; \
-							exit 1; \
-						fi; \
-					else \
-						echo "QUADS mode: allocate"; \
-						$(MAKE) -C modules/quads allocate; \
-					fi; \
+					echo -e "$(RED)Error: Import mode requires cloud_name and lab in config.json$(NC)"; \
+					exit 1; \
 				fi; \
 			else \
-				QUADS_MODE=$$(jq -r '.quads.mode // "allocate"' vars/config.json); \
-				if [ "$$QUADS_MODE" = "import" ]; then \
-					echo "QUADS mode: import"; \
-					CLOUD_NAME=$$(jq -r '.quads.cloud_name // empty' vars/config.json); \
-					LAB=$$(jq -r '.quads.lab // empty' vars/config.json); \
-					if [ -n "$$CLOUD_NAME" ] && [ -n "$$LAB" ]; then \
-						$(MAKE) -C modules/quads import CLOUD_NAME=$$CLOUD_NAME LAB=$$LAB; \
-					else \
-						echo -e "$(RED)Error: Import mode requires cloud_name and lab in config.json$(NC)"; \
-						exit 1; \
-					fi; \
-				else \
-					echo "QUADS mode: allocate"; \
-					$(MAKE) -C modules/quads allocate; \
-				fi; \
+				echo "QUADS mode: allocate"; \
+				$(MAKE) -C modules/quads allocate; \
 			fi; \
-			echo ""; \
-			echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"; \
-			echo "Phase 2: Jetlag - Deploy cluster"; \
-			echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"; \
-			$(MAKE) -C modules/jetlag init; \
-			if [ -f modules/quads/generated/state/current.env ]; then \
-				source modules/quads/generated/state/current.env 2>/dev/null; \
-				if [ "$$DEPLOYMENT_METHOD" = "imported" ]; then \
-					echo -e "$(GREEN)✓ QUADS cluster imported, skipping Jetlag deployment$(NC)"; \
-					echo "  Using existing cluster from import"; \
-					BASTION_HOST=$$(jq -r '.jetlag.bastion_host' vars/config.json); \
-					KUBECONFIG_PATH=$$(jq -r '.jetlag.kubeconfig_path' vars/config.json); \
-					echo "  Bastion: $$BASTION_HOST"; \
-					echo "  Kubeconfig: $$KUBECONFIG_PATH"; \
-					echo "" >> vars/state.env; \
-					echo "# Phase 2: Jetlag (imported cluster - added $$(date))" >> vars/state.env; \
-					echo "BASTION_HOST=\"$$BASTION_HOST\"" >> vars/state.env; \
-					echo "KUBECONFIG_PATH=\"$$KUBECONFIG_PATH\"" >> vars/state.env; \
-					echo "JETLAG_IMPORT_COMPLETED=\"true\"" >> vars/state.env; \
-				elif [ -f modules/jetlag/generated/state/current.env ]; then \
-					source modules/jetlag/generated/state/current.env 2>/dev/null; \
-					if [ "$$JETLAG_DEPLOY_COMPLETED" = "true" ] && [ -n "$$BASTION_HOST" ]; then \
-						echo -e "$(GREEN)✓ Jetlag deployment already complete, skipping Phase 2$(NC)"; \
-						echo "  Bastion: $$BASTION_HOST"; \
-						echo "  Cluster: $$CLUSTER_TYPE"; \
-					else \
-						$(MAKE) -C modules/jetlag deploy; \
-					fi; \
-				else \
-					$(MAKE) -C modules/jetlag deploy; \
-				fi; \
+		fi; \
+	else \
+		if [ "$$QUADS_MODE" = "import" ]; then \
+			echo "QUADS mode: import"; \
+			CLOUD_NAME=$$(jq -r '.quads.cloud_name // empty' vars/config.json); \
+			LAB=$$(jq -r '.quads.lab // empty' vars/config.json); \
+			if [ "$$LAB" = "byol" ]; then \
+				echo -e "$(GREEN)✓ BYOL mode - skipping QUADS import (no QUADS API)$(NC)"; \
+				echo "  Lab: $$LAB"; \
+			elif [ -n "$$CLOUD_NAME" ] && [ -n "$$LAB" ]; then \
+				$(MAKE) -C modules/quads import CLOUD_NAME=$$CLOUD_NAME LAB=$$LAB; \
+			else \
+				echo -e "$(RED)Error: Import mode requires cloud_name and lab in config.json$(NC)"; \
+				exit 1; \
+			fi; \
+		else \
+			echo "QUADS mode: allocate"; \
+			$(MAKE) -C modules/quads allocate; \
+		fi; \
+	fi; \
+	echo ""; \
+	echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"; \
+	echo "Phase 2: Jetlag - Deploy/validate cluster"; \
+	echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"; \
+	$(MAKE) -C modules/jetlag init; \
+	LAB=$$(jq -r '.quads.lab // empty' vars/config.json); \
+	QUADS_MODE=$$(jq -r '.quads.mode // "allocate"' vars/config.json); \
+	if [ "$$LAB" = "byol" ] && [ "$$QUADS_MODE" = "import" ]; then \
+		echo -e "$(GREEN)✓ BYOL mode - using cluster info from config.json$(NC)"; \
+		BASTION_HOST=$$(jq -r '.jetlag.bastion_host' vars/config.json); \
+		KUBECONFIG_PATH=$$(jq -r '.jetlag.kubeconfig_path' vars/config.json); \
+		echo "  Bastion: $$BASTION_HOST"; \
+		echo "  Kubeconfig: $$KUBECONFIG_PATH"; \
+		echo "" >> vars/state.env; \
+		echo "# Phase 2: Jetlag (BYOL cluster - added $$(date))" >> vars/state.env; \
+		echo "BASTION_HOST=\"$$BASTION_HOST\"" >> vars/state.env; \
+		echo "KUBECONFIG_PATH=\"$$KUBECONFIG_PATH\"" >> vars/state.env; \
+		echo "LAB=\"$$LAB\"" >> vars/state.env; \
+		echo "JETLAG_IMPORT_COMPLETED=\"true\"" >> vars/state.env; \
+	elif [ -f modules/quads/generated/state/current.env ]; then \
+		source modules/quads/generated/state/current.env 2>/dev/null; \
+		if [ "$$DEPLOYMENT_METHOD" = "imported" ]; then \
+			echo -e "$(GREEN)✓ QUADS cluster imported, gathering cluster info$(NC)"; \
+			echo "  Using existing cluster from import"; \
+			BASTION_HOST=$$(jq -r '.jetlag.bastion_host' vars/config.json); \
+			KUBECONFIG_PATH=$$(jq -r '.jetlag.kubeconfig_path' vars/config.json); \
+			echo "  Bastion: $$BASTION_HOST"; \
+			echo "  Kubeconfig: $$KUBECONFIG_PATH"; \
+			echo "" >> vars/state.env; \
+			echo "# Phase 2: Jetlag (imported cluster - added $$(date))" >> vars/state.env; \
+			echo "BASTION_HOST=\"$$BASTION_HOST\"" >> vars/state.env; \
+			echo "KUBECONFIG_PATH=\"$$KUBECONFIG_PATH\"" >> vars/state.env; \
+			echo "JETLAG_IMPORT_COMPLETED=\"true\"" >> vars/state.env; \
+		elif [ -f modules/jetlag/generated/state/current.env ]; then \
+			source modules/jetlag/generated/state/current.env 2>/dev/null; \
+			if [ "$$JETLAG_DEPLOY_COMPLETED" = "true" ] && [ -n "$$BASTION_HOST" ]; then \
+				echo -e "$(GREEN)✓ Jetlag deployment already complete, skipping Phase 2$(NC)"; \
+				echo "  Bastion: $$BASTION_HOST"; \
+				echo "  Cluster: $$CLUSTER_TYPE"; \
 			else \
 				$(MAKE) -C modules/jetlag deploy; \
 			fi; \
-			echo ""; \
-			echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"; \
-			echo "Phase 3: Crucible - Install on controller"; \
-			echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"; \
-			$(MAKE) -C modules/crucible init; \
-			AUTO_MODE=1 ./modules/phase-3-crucible-setup.sh; \
-			echo ""; \
-			echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"; \
-			echo "Phase 4: Regulus - Setup workspace"; \
-			echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"; \
-			$(MAKE) -C modules/regulus init; \
-			AUTO_MODE=1 ./modules/phase-4-regulus-setup.sh; \
-			;; \
-		cluster-ready) \
-			echo "Mode: Cluster Ready (User provides cluster)"; \
-			echo ""; \
-			echo "Validating cluster configuration..."; \
-			./modules/phase-4-validate-workspace.sh; \
-			echo ""; \
-			echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"; \
-			echo "Phase 3: Crucible - Install on controller"; \
-			echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"; \
-			$(MAKE) -C modules/crucible init; \
-			AUTO_MODE=1 ./modules/phase-3-crucible-setup.sh; \
-			echo ""; \
-			echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"; \
-			echo "Phase 4: Regulus - Setup workspace"; \
-			echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"; \
-			$(MAKE) -C modules/regulus init; \
-			AUTO_MODE=1 ./modules/phase-4-regulus-setup.sh; \
-			;; \
-		*) \
-			echo -e "$(RED)Error: Unknown DEPLOY_MODE: $$DEPLOY_MODE$(NC)"; \
-			echo "Valid modes: full, cluster-ready"; \
+		else \
+			$(MAKE) -C modules/jetlag deploy; \
+		fi; \
+	else \
+		if [ "$$QUADS_MODE" = "allocate" ]; then \
+			$(MAKE) -C modules/jetlag deploy; \
+		else \
+			echo -e "$(RED)Error: No QUADS state found and not BYOL mode$(NC)"; \
 			exit 1; \
-			;; \
-	esac
+		fi; \
+	fi; \
+	echo ""; \
+	echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"; \
+	echo "Phase 3: Crucible - Install on controller"; \
+	echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"; \
+	$(MAKE) -C modules/crucible init; \
+	AUTO_MODE=1 ./modules/phase-3-crucible-setup.sh; \
+	echo ""; \
+	echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"; \
+	echo "Phase 4: Regulus - Setup workspace"; \
+	echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"; \
+	$(MAKE) -C modules/regulus init; \
+	AUTO_MODE=1 ./modules/phase-4-regulus-setup.sh
 	@echo ""
 	@echo -e "$(GREEN)=========================================$(NC)"
 	@echo -e "$(GREEN)Infrastructure Setup Complete!$(NC)"

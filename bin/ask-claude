@@ -1,0 +1,31 @@
+#!/bin/bash
+# Wrapper that auto-activates venv if needed, then runs Python script
+
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
+
+# Check if we're in a virtual environment
+if [ -z "$VIRTUAL_ENV" ]; then
+    # Not in venv - activate it
+    if [ -f "$SCRIPT_DIR/.venv/bin/activate" ]; then
+        source "$SCRIPT_DIR/.venv/bin/activate"
+    else
+        echo "Error: Virtual environment not found. Run ./bootstrap.sh first." >&2
+        exit 1
+    fi
+fi
+
+# Check if required Python packages are installed
+if ! python3 -c "import anthropic" 2>/dev/null; then
+    echo "Error: AI dependencies not installed." >&2
+    echo "" >&2
+    echo "ask-claude requires Vertex AI access and dependencies." >&2
+    echo "To enable AI features:" >&2
+    echo "  1. Set up Google Cloud authentication: gcloud auth login" >&2
+    echo "  2. Install dependencies: pip install -r requirements.txt" >&2
+    echo "" >&2
+    echo "reg-agent core functionality works without AI features." >&2
+    exit 1
+fi
+
+# Run the Python script
+exec python3 "$SCRIPT_DIR/bin/ask-claude.py" "$@"

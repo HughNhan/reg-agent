@@ -110,64 +110,79 @@ while true; do
 done
 echo ""
 
-# API Server (required)
-echo "2. QUADS API Server"
-while true; do
-    prompt_with_default "   API Server" "$EXISTING_API_SERVER" NEW_API_SERVER
-    if [[ -n "$NEW_API_SERVER" ]]; then
-        break
-    else
-        echo -e "   ${RED}API Server is required${NC}"
-    fi
-done
-echo ""
-
-# Username (required)
-echo "3. QUADS Username"
-while true; do
-    prompt_with_default "   Username" "$EXISTING_USERNAME" NEW_USERNAME
-    if [[ -n "$NEW_USERNAME" ]]; then
-        break
-    else
-        echo -e "   ${RED}Username is required${NC}"
-    fi
-done
-echo ""
-
-# Password (don't show existing)
-echo "4. QUADS Password"
-read -sp "   Password (hidden): " NEW_PASSWORD
-echo ""
-echo ""
-
-# Lab (with validation)
-echo "5. Lab"
-echo "   scalelab or performancelab"
+# Lab (with validation) - ask this first to determine if QUADS API is needed
+echo "2. Lab"
+echo "   scalelab, performancelab, or byol (bring your own lab)"
 while true; do
     prompt_with_default "   Lab" "$EXISTING_LAB" NEW_LAB
-    if [[ "$NEW_LAB" == "scalelab" ]] || [[ "$NEW_LAB" == "performancelab" ]]; then
+    if [[ "$NEW_LAB" == "scalelab" ]] || [[ "$NEW_LAB" == "performancelab" ]] || [[ "$NEW_LAB" == "byol" ]]; then
         break
     else
-        echo -e "   ${RED}Invalid lab. Please enter 'scalelab' or 'performancelab'${NC}"
+        echo -e "   ${RED}Invalid lab. Please enter 'scalelab', 'performancelab', or 'byol'${NC}"
     fi
 done
 echo ""
 
-# Mode-specific configuration
-if [ "$NEW_MODE" = "import" ]; then
-    # Import mode: Ask for cloud name (required)
-    EXISTING_CLOUD_NAME=$(jq -r '.quads.cloud_name // ""' "$CONFIG_JSON")
-    echo "6. Cloud Name (to import)"
-    echo "   Existing QUADS cloud to import (e.g., cloud23)"
+# API Server, Username, Password - only for scalelab/performancelab
+if [[ "$NEW_LAB" == "byol" ]]; then
+    echo -e "${YELLOW}BYOL mode: Skipping QUADS API configuration (not needed)${NC}"
+    NEW_API_SERVER=""
+    NEW_USERNAME=""
+    NEW_PASSWORD=""
+    echo ""
+else
+    # API Server (required)
+    echo "3. QUADS API Server"
     while true; do
-        prompt_with_default "   Cloud name" "$EXISTING_CLOUD_NAME" NEW_CLOUD_NAME
-        if [[ -n "$NEW_CLOUD_NAME" ]]; then
+        prompt_with_default "   API Server" "$EXISTING_API_SERVER" NEW_API_SERVER
+        if [[ -n "$NEW_API_SERVER" ]]; then
             break
         else
-            echo -e "   ${RED}Cloud name is required for import mode${NC}"
+            echo -e "   ${RED}API Server is required for ${NEW_LAB}${NC}"
         fi
     done
     echo ""
+
+    # Username (required)
+    echo "4. QUADS Username"
+    while true; do
+        prompt_with_default "   Username" "$EXISTING_USERNAME" NEW_USERNAME
+        if [[ -n "$NEW_USERNAME" ]]; then
+            break
+        else
+            echo -e "   ${RED}Username is required for ${NEW_LAB}${NC}"
+        fi
+    done
+    echo ""
+
+    # Password (don't show existing)
+    echo "5. QUADS Password"
+    read -sp "   Password (hidden): " NEW_PASSWORD
+    echo ""
+    echo ""
+fi
+
+# Mode-specific configuration
+if [ "$NEW_MODE" = "import" ]; then
+    # Import mode: Ask for cloud name only if not BYOL
+    if [[ "$NEW_LAB" == "byol" ]]; then
+        echo -e "${YELLOW}BYOL mode: Skipping cloud name (not applicable for bring-your-own-lab)${NC}"
+        NEW_CLOUD_NAME=""
+        echo ""
+    else
+        EXISTING_CLOUD_NAME=$(jq -r '.quads.cloud_name // ""' "$CONFIG_JSON")
+        echo "6. Cloud Name (to import)"
+        echo "   Existing QUADS cloud to import (e.g., cloud23)"
+        while true; do
+            prompt_with_default "   Cloud name" "$EXISTING_CLOUD_NAME" NEW_CLOUD_NAME
+            if [[ -n "$NEW_CLOUD_NAME" ]]; then
+                break
+            else
+                echo -e "   ${RED}Cloud name is required for import mode (scalelab/performancelab)${NC}"
+            fi
+        done
+        echo ""
+    fi
 
     # Set allocate-specific fields to empty for import mode
     NEW_NUM_HOSTS=""

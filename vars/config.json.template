@@ -1,7 +1,6 @@
 {
   "comment": "reg-agent configuration template - copy to config.json and fill in values",
   "version": "1.0",
-  "deployment_mode": "full",
   "quads": {
     "mode": "allocate",
     "api_server": "",
@@ -10,6 +9,7 @@
     "api_token": "",
     "user_domain": "redhat.com",
     "lab": "scalelab",
+    "_comment_lab": "Valid labs: scalelab, performancelab, byol (byol = bring your own lab, no QUADS API needed)",
     "num_hosts": 6,
     "preferred_model": "r750",
     "workload_name": "",
@@ -22,6 +22,8 @@
     "ssh_password": ""
   },
   "jetlag": {
+    "_comment_allocate": "For allocate mode, provide: cluster_type, worker_node_count, ocp_build, ocp_version, network_stack, pull_secret_path, bmc_password",
+    "_comment_import": "For import mode, provide: bastion_host, kubeconfig_path (cluster_type not needed, Regulus will discover)",
     "cluster_type": "mno",
     "worker_node_count": 3,
     "ocp_build": "ga",
@@ -35,8 +37,10 @@
   },
   "crucible_controller": {
     "target": "bastion",
+    "_comment_target": "Where to install Crucible: 'bastion' (use Jetlag bastion) or 'other' (specify other_host)",
     "user": "root",
-    "password": ""
+    "password": "",
+    "other_host": ""
   },
   "crucible": {
     "git_repo": "https://github.com/perftool-incubator/crucible.git",

@@ -55,8 +55,8 @@ if [ -n "$CONFIG_FILE" ] && [ -f "$CONFIG_FILE" ]; then
         echo ""
     fi
 
-    # Parse deployment mode from JSON
-    DEPLOY_MODE=$(jq -r '.deployment_mode // "full"' "$CONFIG_FILE")
+    # Parse QUADS mode from JSON (determines whether we allocate or import)
+    QUADS_MODE=$(jq -r '.quads.mode // "allocate"' "$CONFIG_FILE")
 
 else
     MODE="interactive"
@@ -65,24 +65,24 @@ else
     echo -e "${GREEN}Mode: Interactive${NC}"
     echo ""
 
-    # Ask for deployment mode
-    echo "Select deployment mode:"
-    echo "  1) full         - Complete pipeline (QUADS + Jetlag + Crucible + Regulus)"
-    echo "  2) cluster-ready - Use existing cluster (Crucible + Regulus)"
+    # Ask for QUADS mode
+    echo "Select QUADS mode:"
+    echo "  1) allocate - Allocate new bare metal from QUADS"
+    echo "  2) import   - Import existing QUADS allocation"
     echo ""
     read -p "Choice [1-2, default=1]: " mode_choice
 
     case "$mode_choice" in
-        2) DEPLOY_MODE="cluster-ready" ;;
-        *) DEPLOY_MODE="full" ;;
+        2) QUADS_MODE="import" ;;
+        *) QUADS_MODE="allocate" ;;
     esac
 
     echo ""
-    echo -e "${GREEN}Selected: $DEPLOY_MODE${NC}"
+    echo -e "${GREEN}Selected QUADS mode: $QUADS_MODE${NC}"
     echo ""
 fi
 
-export DEPLOY_MODE
+export QUADS_MODE
 
 #------------------------------------------------------------------------------
 # Load Existing Configuration and State
@@ -164,12 +164,13 @@ if [ "$MODE" = "json" ]; then
 fi
 
 #------------------------------------------------------------------------------
-# Get Module List Based on Deployment Mode
+# Get Module List (Always All 4 Modules)
 #------------------------------------------------------------------------------
 
-MODULES=$(get_modules_for_mode "$DEPLOY_MODE")
+# Always configure all 4 modules - QUADS mode determines behavior within modules
+MODULES="quads jetlag crucible regulus"
 
-echo -e "${BLUE}Deployment Mode: ${DEPLOY_MODE}${NC}"
+echo -e "${BLUE}QUADS Mode: ${QUADS_MODE}${NC}"
 echo "Modules to configure: $MODULES"
 echo ""
 
@@ -279,12 +280,12 @@ done
 # Write Global Settings
 #------------------------------------------------------------------------------
 
-# Ensure DEPLOY_MODE is in config.env
+# Ensure QUADS_MODE is in config.env
 if [ -f "${VARS_DIR}/config.env" ]; then
-    if ! grep -q "^DEPLOY_MODE=" "${VARS_DIR}/config.env" 2>/dev/null; then
+    if ! grep -q "^QUADS_MODE=" "${VARS_DIR}/config.env" 2>/dev/null; then
         echo "" >> "${VARS_DIR}/config.env"
-        echo "# Deployment mode" >> "${VARS_DIR}/config.env"
-        echo "DEPLOY_MODE=${DEPLOY_MODE}" >> "${VARS_DIR}/config.env"
+        echo "# QUADS mode (allocate or import)" >> "${VARS_DIR}/config.env"
+        echo "QUADS_MODE=${QUADS_MODE}" >> "${VARS_DIR}/config.env"
     fi
 fi
 

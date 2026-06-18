@@ -17,7 +17,6 @@ init_json_config() {
 {
   "comment": "reg-agent configuration - auto-generated",
   "version": "1.0",
-  "deployment_mode": "full",
   "quads": {},
   "lab": {},
   "jetlag": {},

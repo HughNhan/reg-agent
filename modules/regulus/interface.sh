@@ -23,7 +23,7 @@ MODULE_PROVIDES=(
 
 # Configuration variables this module needs
 MODULE_CONFIG_VARS=(
-    "REGULUS_JOBS"         # Test job paths (e.g., "./SANDBOX")
+    "REGULUS_JOBS"         # Test job paths (e.g., "./1_GROUP/NO-PAO/4IP/INTER-NODE/TCP/2-POD")
     "REGULUS_TAG"          # Test identifier tag
     "NUM_SAMPLES"          # Number of test samples
     "TEST_DURATION"        # Test duration in seconds

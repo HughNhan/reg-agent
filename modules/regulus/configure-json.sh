@@ -106,7 +106,7 @@ echo ""
 # Jobs
 echo "3. Test Jobs"
 echo "   Space-separated list of test job paths"
-echo "   e.g., ./SANDBOX or ./1_GROUP/NO-PAO/4IP"
+echo "   e.g., ./1_GROUP/NO-PAO/4IP/INTER-NODE/TCP/2-POD"
 prompt_with_default "   Jobs" "$EXISTING_JOBS" NEW_JOBS
 echo ""
 

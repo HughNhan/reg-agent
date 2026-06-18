@@ -152,12 +152,20 @@ else
     source .venv/bin/activate
 fi
 
-# Install Python dependencies (for LLM features)
+# Install Python dependencies (for AI features - optional)
 if [ -f "requirements.txt" ]; then
     echo ""
-    echo "Installing Python dependencies..."
-    pip install -r requirements.txt > /dev/null 2>&1
-    echo -e "${GREEN}✓ Python dependencies installed${NC}"
+    echo "Installing Python dependencies (for AI features)..."
+    if pip install -r requirements.txt > /dev/null 2>&1; then
+        echo -e "${GREEN}✓ Python dependencies installed${NC}"
+        AI_AVAILABLE=true
+    else
+        echo -e "${YELLOW}⚠  Failed to install AI dependencies (optional)${NC}"
+        echo "   AI features (ask-claude) will not be available"
+        AI_AVAILABLE=false
+    fi
+else
+    AI_AVAILABLE=false
 fi
 
 # Create directories
@@ -283,10 +291,36 @@ echo "3. Or run interactively:"
 echo "   make configure"
 echo "   make deploy"
 echo ""
-echo "Optional: Setup LLM for AI features"
-echo "  - Install Ollama: curl -fsSL https://ollama.com/install.sh | sh"
-echo "  - Start LLM server: cd llm-server && ./llm-ctl.sh start"
-echo ""
+if [ "$AI_AVAILABLE" = "true" ]; then
+    # Create function wrapper for ask-claude (works better than alias)
+    SHELL_RC=""
+    if [ -n "$BASH_VERSION" ]; then
+        SHELL_RC="$HOME/.bashrc"
+    elif [ -n "$ZSH_VERSION" ]; then
+        SHELL_RC="$HOME/.zshrc"
+    fi
+
+    if [ -n "$SHELL_RC" ]; then
+        # Add function if not already present
+        if ! grep -q "function ask-claude" "$SHELL_RC" 2>/dev/null && ! grep -q "ask-claude()" "$SHELL_RC" 2>/dev/null; then
+            cat >> "$SHELL_RC" << EOF
+
+# reg-agent AI assistant
+ask-claude() {
+    $SCRIPT_DIR/bin/ask-claude "\$@"
+}
+EOF
+            echo -e "${GREEN}✓ Added 'ask-claude' command to $SHELL_RC${NC}"
+            echo -e "${YELLOW}  Run 'source $SHELL_RC' or restart your shell to use it${NC}"
+        fi
+    fi
+
+    echo "AI Assistant (ask-claude):"
+    echo "   ask-claude 'your question here'"
+    echo "   ask-claude analyze-failure path/to/error.log"
+    echo "   ask-claude recommend-quads 'test requirements'"
+    echo ""
+fi
 echo "For help:"
 echo "   make help"
 echo ""

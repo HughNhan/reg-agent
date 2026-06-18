@@ -6,17 +6,43 @@ Automates the complete pipeline from bare metal allocation to cluster deployment
 
 ## Overview
 
-reg-agent orchestrates a 4-module pipeline:
+reg-agent orchestrates a 4-module pipeline that executes in 6 phases:
 
+**Modules** (organizational units):
 1. **QUADS** - Allocate bare metal from Red Hat performance labs (scalelab/performancelab)
 2. **Jetlag** - Deploy OpenShift cluster (MNO/SNO) on allocated hardware
 3. **Crucible** - Install performance benchmark framework on bastion host
 4. **Regulus** - Execute performance tests and collect results
 
+**Phases** (execution steps):
+- Phase 1: QUADS allocation
+- Phase 2: Jetlag cluster deployment
+- Phase 3: Crucible installation
+- Phase 4: Regulus setup
+- Phase 5: Regulus test execution
+- Phase 6: Results validation
+
+Note: The Regulus module spans phases 4-6 (setup, run, validate)
+
 ## How to Use
 
-### Quick Start (3 steps)
+### Quick Start
 
+**Option 1: Complete pipeline (one command)**
+```bash
+# 1. Clone and bootstrap
+git clone https://github.com/HughNhan/reg-agent.git
+cd reg-agent
+./bootstrap.sh
+
+# 2. Configure QUADS (minimum requirement)
+make -C modules/quads configure
+
+# 3. Run complete pipeline: deploy + run + validate
+make all
+```
+
+**Option 2: Step-by-step (for debugging/control)**
 ```bash
 # 1. Clone and bootstrap
 git clone https://github.com/HughNhan/reg-agent.git
@@ -24,22 +50,18 @@ cd reg-agent
 ./bootstrap.sh
 
 # 2. Configure - Build vars/config.json using interactive helpers
-make -C modules/quads configure      # Configure QUADS allocation
+make -C modules/quads configure      # Configure QUADS allocation (required)
 make -C modules/jetlag configure     # Configure cluster deployment (optional)
 make -C modules/crucible configure   # Configure Crucible setup (optional)
 make -C modules/regulus configure    # Configure test execution (optional)
 
-# 3. Run the pipeline
+# 3. Run the pipeline step-by-step
 make deploy          # Deploy infrastructure
-make run validate    # Run tests and validate results
+make run             # Execute tests
+make validate        # Validate results
 ```
 
-**Or use `make all`** to deploy + run + validate in one command:
-```bash
-./bootstrap.sh
-make -C modules/quads configure
-make all
-```
+**What `make all` does**: Runs `deploy`, `run`, and `validate` targets sequentially in a single command. Does NOT include configuration - you must configure first.
 
 ### Configuration Methods
 
@@ -71,6 +93,7 @@ The interactive helpers create a combined `vars/config.json` that all modules re
 - **Type safety** - Numeric values, enums, required fields enforced
 - **Modular organization** - Settings grouped by module (`.quads`, `.jetlag`, `.regulus`)
 - **Interactive helpers** - Per-module `configure` targets generate valid config
+- **Modular validation** - Each module validates its own section, orchestrator provides comprehensive reporting
 
 ### Intelligent Retry Logic
 - **Foreman timing gap handling** - Auto-retry when QUADS validates before Foreman completes provisioning
@@ -94,30 +117,47 @@ The interactive helpers create a combined `vars/config.json` that all modules re
 
 ## Advanced Usage
 
-### Using Existing Cluster (Skip QUADS and Jetlag)
+### Using Existing Cluster (Import Mode)
 
-Set deployment mode to `cluster-ready` in `vars/config.json`:
+Set `quads.mode` to `import` in `vars/config.json` and provide existing cluster details.
 
+**For scalelab/performancelab clusters:**
 ```json
 {
-  "deployment_mode": "cluster-ready",
-  "lab": {
-    "bastion_host": "cloud04.example.com",
-    "bastion_ssh_user": "root"
+  "quads": {
+    "mode": "import",
+    "api_server": "quads.example.com",
+    "username": "your-username",
+    "password": "your-password",
+    "lab": "scalelab",
+    "cloud_name": "cloud04"
   },
   "jetlag": {
-    "kubeconfig_path": "/root/mno/kubeconfig",
-    "cluster_type": "mno"
-  },
-  "regulus": {
-    "tests": ["ovn-k:hostnet:iperf-tcp-1200"]
+    "bastion_host": "cloud04-h01-000-r750.example.com",
+    "kubeconfig_path": "/root/mno/kubeconfig"
   }
 }
 ```
 
+**For BYOL (bring your own lab) clusters:**
+```json
+{
+  "quads": {
+    "mode": "import",
+    "lab": "byol"
+  },
+  "jetlag": {
+    "bastion_host": "your-bastion.example.com",  // REQUIRED
+    "kubeconfig_path": "/root/kubeconfig"        // REQUIRED
+  }
+}
+```
+
+**Important**: BYOL mode skips QUADS API calls (no api_server/username/password needed), but the `jetlag` section with `bastion_host` and `kubeconfig_path` is **required** to specify your existing cluster location.
+
 Then run:
 ```bash
-make deploy  # Skips QUADS and Jetlag, goes directly to Crucible + Regulus
+make deploy  # QUADS imports state, Jetlag validates cluster, Crucible + Regulus deploy
 make run validate
 ```
 
@@ -160,19 +200,18 @@ make validate          # Check results
 
 ```json
 {
-  "deployment_mode": "full",
-
   "quads": {
-    "api_server": "https://quads.example.com",
+    "mode": "allocate",
+    "api_server": "quads.example.com",
     "username": "your-username",
     "password": "your-password",
     "num_hosts": 6,
     "lab": "scalelab",
-    "duration_hours": 168
+    "preferred_model": "r750",
+    "workload_name": "regulus-testing"
   },
 
   "lab": {
-    "name": "scalelab",
     "ssh_username": "root",
     "ssh_password": "optional"
   },
@@ -186,18 +225,38 @@ make validate          # Check results
   },
 
   "crucible": {
-    "controller_host": "auto",
-    "controller_user": "root",
-    "git_repo": "https://github.com/perftool-incubator/crucible.git"
+    "git_repo": "https://github.com/perftool-incubator/crucible.git",
+    "git_branch": "master"
+  },
+
+  "crucible_controller": {
+    "target": "bastion",
+    "user": "root"
   },
 
   "regulus": {
-    "tests": [
-      "ovn-k:hostnet:iperf-tcp-1200"
-    ],
-    "git_repo": "https://github.com/HughNhan/regulus.git",
+    "jobs": "./1_GROUP/NO-PAO/4IP/INTER-NODE/TCP/2-POD",
+    "duration": 60,
     "num_samples": 3,
-    "test_duration": 60
+    "tag": "REG-AGENT"
+  }
+}
+```
+
+**Note**: Lab name is specified in `quads.lab` (e.g., "scalelab", "performancelab", "byol"). The separate `lab` section only contains SSH credentials that apply to all lab machines.
+
+**Crucible Controller Options**:
+- `target: "bastion"` - Install Crucible on the Jetlag bastion host (default, recommended)
+- `target: "other"` - Install Crucible on a different host (requires `other_host` field)
+
+Example using a custom controller host:
+```json
+{
+  "crucible_controller": {
+    "target": "other",
+    "other_host": "my-controller.example.com",
+    "user": "root",
+    "password": "optional-if-using-ssh-keys"
   }
 }
 ```
@@ -272,13 +331,17 @@ reg-agent/
 │
 ├── modules/
 │   ├── lib/                     # Shared libraries
-│   │   ├── json-config.sh       # JSON configuration functions
-│   │   └── check-dependencies.sh
+│   │   ├── check-dependencies.sh # Dependency checking library
+│   │   ├── json-config.sh        # JSON configuration functions
+│   │   ├── logging.sh            # Logging utilities
+│   │   ├── module-interface.sh   # Module interface functions
+│   │   └── validate-config.sh    # Module validators (single source of truth)
 │   │
 │   ├── quads/                   # Phase 1: Bare metal allocation
 │   │   ├── Makefile
 │   │   ├── CLAUDE.md
 │   │   ├── configure-json.sh
+│   │   ├── phase-1-quads-reserve.sh  # Phase 1 orchestration (inside module)
 │   │   ├── quads-ssm-reserve.sh
 │   │   └── quads-ssm-import.sh
 │   │
@@ -293,19 +356,36 @@ reg-agent/
 │   │   ├── CLAUDE.md
 │   │   └── configure-json.sh
 │   │
-│   └── regulus/                 # Phase 4: Test execution
-│       ├── Makefile
-│       ├── CLAUDE.md
-│       ├── configure-json.sh
-│       └── configure-tests.sh
+│   ├── regulus/                 # Phase 4-6: Test execution
+│   │   ├── Makefile
+│   │   ├── CLAUDE.md
+│   │   ├── configure-json.sh
+│   │   └── configure-tests.sh
+│   │
+│   # Phase orchestration scripts (called by main Makefile)
+│   # Note: Phases 2-6 live at modules/ root for historical reasons
+│   # Phase 1 lives inside quads/ module (see above)
+│   ├── phase-2-jetlag-deploy.sh   # Phase 2: Jetlag deployment orchestration
+│   ├── phase-3-crucible-setup.sh  # Phase 3: Crucible setup orchestration
+│   ├── phase-4-regulus-setup.sh   # Phase 4: Regulus setup orchestration
+│   ├── phase-5-regulus-run.sh     # Phase 5: Regulus test execution orchestration
+│   └── phase-6-validate-results.sh # Phase 6: Results validation orchestration
 │
 ├── config/
-│   ├── config.schema.json       # JSON Schema validation
-│   └── validate-config.sh       # Configuration validator
+│   ├── config.schema.json           # JSON Schema Draft-07
+│   ├── validate-config.sh           # Validation orchestrator (calls module validators)
+│   ├── test-validator-consistency.sh # Validator test suite
+│   ├── VALIDATOR-ARCHITECTURE.md    # Validator architecture documentation
+│   ├── CONFIG-SCHEMA.md             # Schema documentation
+│   ├── orchestrate-config.sh        # Legacy configuration orchestrator
+│   ├── sample-config.json           # Example configuration
+│   ├── README-AUTO-MODE.md          # Auto-mode documentation
+│   └── README-DEPRECATION.md        # Deprecation notices
 │
-├── vars/                        # Generated configs (gitignored)
-│   ├── config.json              # Main configuration
-│   └── state.env                # Pipeline state
+├── vars/                        # Configuration and state
+│   ├── config.json.template     # Configuration template (tracked in git)
+│   ├── config.json              # User configuration (gitignored)
+│   └── state.env                # Pipeline state (gitignored)
 │
 ├── repos/                       # Dependencies (gitignored)
 │   ├── ansible-quads-ssm/      # QUADS allocation (runs on reg-agent)
@@ -320,14 +400,20 @@ not under reg-agent/repos/
 
 ## Results and Artifacts
 
-Test results are stored in `artifacts/regulus-results/`:
+Test results are stored in `artifacts/`:
 
 ```bash
-# View test summary
-make -C modules/regulus show-results
+# View test summary from latest run
+cat artifacts/latest/regulus-results/result-summary.txt
+
+# View full validation report
+cat artifacts/latest/validation-report.txt
 
 # Check validation status
 make validate
+
+# List all runs
+ls -lt artifacts/
 ```
 
 ## Troubleshooting
