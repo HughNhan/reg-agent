@@ -319,6 +319,24 @@ else
 
     cd "${ROOT_DIR}/repos/jetlag"
 
+    # Copy pull secret if exists (needed by create-inventory.yml validation)
+    if [ -n "$PULL_SECRET_PATH" ] && [ -f "$PULL_SECRET_PATH" ]; then
+        log "Copying pull secret..."
+        cp "$PULL_SECRET_PATH" pull-secret.txt
+    elif [ -f "${ROOT_DIR}/pull-secret.txt" ]; then
+        log "Using pull secret from repo root..."
+        cp "${ROOT_DIR}/pull-secret.txt" pull-secret.txt
+    else
+        log "${RED}ERROR: Pull secret not found${NC}"
+        log "  Looked at: $PULL_SECRET_PATH"
+        log "  Looked at: ${ROOT_DIR}/pull-secret.txt"
+        log ""
+        log "Please provide pull secret in one of:"
+        log "  1. Set pull_secret_path in vars/config.json"
+        log "  2. Place pull-secret.txt in repo root"
+        exit 1
+    fi
+
     # Generate all.yml configuration
     log "Generating Jetlag configuration (ansible/vars/all.yml)..."
 
