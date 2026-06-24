@@ -14,7 +14,7 @@ The following types of information should **NEVER** be committed to the reposito
 - ❌ Service account credentials
 
 ### Infrastructure Details
-- ❌ Specific hostnames (e.g., `w37-h15-000-r740xd.rdu3.labs.perfscale.redhat.com`)
+- ❌ Specific hostnames (e.g., `my-r740xd.my.com`)
 - ❌ Internal IP addresses (non-RFC example ranges)
 - ❌ MAC addresses
 - ❌ BMC/IPMI addresses
@@ -38,7 +38,7 @@ The following are acceptable for documentation and examples:
 - ✅ `<your-password>` - Password placeholder
 
 ### Public Information
-- ✅ `scalelab`, `performancelab` - Public Red Hat lab names
+- ✅ `scalelab`, `performancelab` - Public my company lab names
 - ✅ `198.18.0.x` - RFC 2544 reserved test range
 - ✅ `example.com`, `example.net` - RFC 2606 reserved domains
 - ✅ Tool names and commands
