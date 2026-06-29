@@ -26,6 +26,14 @@ json_export_env ".regulus" "REGULUS"
 json_export_env ".lab" "LAB"
 json_export_env ".crucible_controller" "CRUCIBLE_CONTROLLER"
 
+# Normalize CRUCIBLE_CONTROLLER_TARGET
+# If target is set to a hostname that matches BASTION_HOST, normalize it to "bastion"
+if [ -n "$CRUCIBLE_CONTROLLER_TARGET" ] && [ -n "$BASTION_HOST" ]; then
+    if [ "$CRUCIBLE_CONTROLLER_TARGET" = "$BASTION_HOST" ]; then
+        CRUCIBLE_CONTROLLER_TARGET="bastion"
+    fi
+fi
+
 # Source state
 if [ ! -f "${REG_AGENT_ROOT}/vars/state.env" ]; then
     echo -e "${RED}Error: State file not found${NC}"
@@ -81,6 +89,20 @@ else
     log "ERROR: Invalid CRUCIBLE_CONTROLLER_TARGET: $CRUCIBLE_CONTROLLER_TARGET"
     exit 1
 fi
+
+# Validate BASTION_HOST is always set (required for OCP cluster access)
+if [ -z "$BASTION_HOST" ]; then
+    echo -e "${RED}Error: BASTION_HOST not set${NC}"
+    echo "BASTION_HOST is required for Regulus to access the OpenShift cluster"
+    echo "This should be set by Phase 2 (Jetlag deployment)"
+    echo ""
+    echo "Next steps:"
+    echo "  1. Verify Phase 2 completed: check vars/state.env"
+    echo "  2. Or manually set BASTION_HOST in vars/state.env"
+    log "ERROR: BASTION_HOST not set - cannot proceed"
+    exit 1
+fi
+log "BASTION_HOST validated: ${BASTION_HOST}"
 
 # Set default for REG_KNI_USER (user that runs Regulus commands on bastion)
 # Typically same as CRUCIBLE_CONTROLLER_USER (root on bastion)
@@ -350,11 +372,21 @@ AUTOFIX_PREP
             log "  ERROR: Failed to retrieve public key from ${CRUCIBLE_CONTROLLER_HOST}"
             DEPS_FAILED=$((DEPS_FAILED + 1))
         else
-            # Append to bastion's authorized_keys
-            COPY_RESULT=$(ssh ${REG_KNI_USER}@${BASTION_HOST} bash <<SSHCOPY 2>&1
+            # Append to bastion's authorized_keys using shell-safe quoting
+            # Pass the public key via stdin to avoid shell interpolation issues
+            COPY_RESULT=$(echo "$REGULUS_PUBKEY" | ssh ${REG_KNI_USER}@${BASTION_HOST} bash -s <<'SSHCOPY' 2>&1
+# Read the public key from stdin
+PUBKEY=$(cat)
+
+# Validate the public key is not empty
+if [ -z "$PUBKEY" ]; then
+    echo "✗ Empty public key received"
+    exit 1
+fi
+
 mkdir -p ~/.ssh
 chmod 700 ~/.ssh
-echo "${REGULUS_PUBKEY}" >> ~/.ssh/authorized_keys
+echo "$PUBKEY" >> ~/.ssh/authorized_keys
 chmod 600 ~/.ssh/authorized_keys
 echo "✓ Public key added to authorized_keys"
 SSHCOPY
