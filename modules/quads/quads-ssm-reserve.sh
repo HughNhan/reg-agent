@@ -191,9 +191,12 @@ echo "Generating QUADS configuration..."
 # Handle preferred models
 if [ "$QUADS_PREFERRED_MODEL" = "all" ] || [ "$QUADS_PREFERRED_MODEL" = "any" ]; then
     PREFERRED_MODELS_YAML='"all"'
-else
-    # Convert comma-separated to YAML list
+elif echo "$QUADS_PREFERRED_MODEL" | grep -q ','; then
+    # Multiple models (comma-separated) - convert to YAML list
     PREFERRED_MODELS_YAML=$(printf '\n'; echo "$QUADS_PREFERRED_MODEL" | tr ',' '\n' | sed 's/^[[:space:]]*//;s/[[:space:]]*$//' | sed 's/^/  - "/' | sed 's/$/"/')
+else
+    # Single model - keep as string to avoid ansible-quads-ssm list processing bug
+    PREFERRED_MODELS_YAML="\"${QUADS_PREFERRED_MODEL}\""
 fi
 
 # Create quads_config.yml
