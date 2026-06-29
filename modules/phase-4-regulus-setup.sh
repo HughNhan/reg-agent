@@ -24,6 +24,7 @@ fi
 source "${REG_AGENT_ROOT}/modules/lib/json-config.sh"
 json_export_env ".regulus" "REGULUS"
 json_export_env ".lab" "LAB"
+json_export_env ".crucible_controller" "CRUCIBLE_CONTROLLER"
 
 # Source state
 if [ ! -f "${REG_AGENT_ROOT}/vars/state.env" ]; then
@@ -273,15 +274,15 @@ fi
 log "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
 
 # Check 1: Passwordless SSH from Regulus host to bastion (REG_OCPHOST) as REG_KNI_USER
-# REG_OCPHOST will be set to CRUCIBLE_CONTROLLER_HOST (which could be bastion or another host)
-echo -n "  Checking passwordless SSH on Regulus host to bastion... "
+# REG_OCPHOST is always the bastion (where OCP cluster/kubeconfig is), regardless of where Regulus is installed
+echo -n "  Checking passwordless SSH from Regulus host to bastion... "
 log "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
 log "Check 1: Passwordless SSH from Regulus host to bastion (REG_OCPHOST)"
 log "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
 log "  Current host (reg-agent client): $(hostname)"
-log "  Regulus host: ${CRUCIBLE_CONTROLLER_HOST}"
-log "  REG_OCPHOST (bastion): ${CRUCIBLE_CONTROLLER_HOST}"
-log "  SSH test command: ssh ${REG_KNI_USER}@${CRUCIBLE_CONTROLLER_HOST}"
+log "  Regulus installed on: ${CRUCIBLE_CONTROLLER_HOST}"
+log "  REG_OCPHOST (bastion): ${BASTION_HOST}"
+log "  SSH test command: ssh ${REG_KNI_USER}@${BASTION_HOST}"
 log ""
 
 # First verify REG_KNI_USER is set
@@ -295,9 +296,9 @@ else
     # Test SSH connection FROM Regulus host TO bastion as REG_KNI_USER
     # This runs ON the Regulus host to test if it can SSH to the bastion
     log "  Executing test on Regulus host..."
-    log "  Command: ssh ${CRUCIBLE_CONTROLLER_USER}@${CRUCIBLE_CONTROLLER_HOST} \"ssh -o BatchMode=yes ${REG_KNI_USER}@${CRUCIBLE_CONTROLLER_HOST} 'hostname'\""
+    log "  Command: ssh ${CRUCIBLE_CONTROLLER_USER}@${CRUCIBLE_CONTROLLER_HOST} \"ssh -o BatchMode=yes ${REG_KNI_USER}@${BASTION_HOST} 'hostname'\""
 
-    SSH_TEST_RESULT=$(ssh ${CRUCIBLE_CONTROLLER_USER}@${CRUCIBLE_CONTROLLER_HOST} "echo 'On Regulus host: '\$(hostname) && ssh -o BatchMode=yes -o ConnectTimeout=5 -o StrictHostKeyChecking=no ${REG_KNI_USER}@${CRUCIBLE_CONTROLLER_HOST} 'echo Connected to: \$(hostname)' 2>&1" || echo "SSH_FAILED")
+    SSH_TEST_RESULT=$(ssh ${CRUCIBLE_CONTROLLER_USER}@${CRUCIBLE_CONTROLLER_HOST} "echo 'On Regulus host: '\$(hostname) && ssh -o BatchMode=yes -o ConnectTimeout=5 -o StrictHostKeyChecking=no ${REG_KNI_USER}@${BASTION_HOST} 'echo Connected to: \$(hostname)' 2>&1" || echo "SSH_FAILED")
 
     log "  Test output:"
     log "${SSH_TEST_RESULT}"
@@ -306,12 +307,12 @@ else
     if echo "$SSH_TEST_RESULT" | grep -q "Connected to:"; then
         echo -e "${GREEN}✓${NC}"
         log "  ✓ Result: PASS - Passwordless SSH works"
-        log "    ${REG_KNI_USER}@${CRUCIBLE_CONTROLLER_HOST} is accessible from Regulus host"
+        log "    ${REG_KNI_USER}@${BASTION_HOST} is accessible from Regulus host"
         log "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
         DEPS_PASSED=$((DEPS_PASSED + 1))
     else
         echo -e "${RED}✗${NC}"
-        echo "    Regulus host cannot SSH to bastion as ${REG_KNI_USER}@${CRUCIBLE_CONTROLLER_HOST} without password"
+        echo "    Regulus host cannot SSH to bastion as ${REG_KNI_USER}@${BASTION_HOST} without password"
         echo "    This is required for Regulus to access the cluster"
         echo ""
         echo "    Error details:"
@@ -338,62 +339,58 @@ fi
 AUTOFIX_PREP
 
         # Now copy the key to bastion
-        echo "    Copying SSH key to authorized_keys..."
-        log "  Appending public key to ${REG_KNI_USER}@${CRUCIBLE_CONTROLLER_HOST}:~/.ssh/authorized_keys"
+        echo "    Copying SSH key to bastion..."
+        log "  Appending public key to ${REG_KNI_USER}@${BASTION_HOST}:~/.ssh/authorized_keys"
 
-        # Since we're on the Regulus host and bastion might be the same machine,
-        # we can directly append the public key to authorized_keys
-        COPY_RESULT=$(ssh ${CRUCIBLE_CONTROLLER_USER}@${CRUCIBLE_CONTROLLER_HOST} bash <<'SSHCOPY' 2>&1
-# Ensure .ssh directory exists with correct permissions
+        # Get the public key from Regulus host and copy it to bastion
+        REGULUS_PUBKEY=$(ssh ${CRUCIBLE_CONTROLLER_USER}@${CRUCIBLE_CONTROLLER_HOST} "cat ~/.ssh/id_rsa.pub 2>/dev/null" || echo "")
+
+        if [ -z "$REGULUS_PUBKEY" ]; then
+            echo -e "    ${RED}✗ Failed to retrieve public key from Regulus host${NC}"
+            log "  ERROR: Failed to retrieve public key from ${CRUCIBLE_CONTROLLER_HOST}"
+            DEPS_FAILED=$((DEPS_FAILED + 1))
+        else
+            # Append to bastion's authorized_keys
+            COPY_RESULT=$(ssh ${REG_KNI_USER}@${BASTION_HOST} bash <<SSHCOPY 2>&1
 mkdir -p ~/.ssh
 chmod 700 ~/.ssh
-
-# Append public key to authorized_keys if not already present
-if [ -f ~/.ssh/id_rsa.pub ]; then
-    if ! grep -q -f ~/.ssh/id_rsa.pub ~/.ssh/authorized_keys 2>/dev/null; then
-        cat ~/.ssh/id_rsa.pub >> ~/.ssh/authorized_keys
-        chmod 600 ~/.ssh/authorized_keys
-        echo "✓ Public key added to authorized_keys"
-    else
-        echo "✓ Public key already in authorized_keys"
-    fi
-else
-    echo "✗ Public key not found"
-    exit 1
-fi
+echo "${REGULUS_PUBKEY}" >> ~/.ssh/authorized_keys
+chmod 600 ~/.ssh/authorized_keys
+echo "✓ Public key added to authorized_keys"
 SSHCOPY
 )
 
-        log "  authorized_keys update:"
-        log "${COPY_RESULT}"
+            log "  authorized_keys update:"
+            log "${COPY_RESULT}"
 
-        # Re-test SSH after auto-fix
-        echo "    Re-testing SSH connection..."
-        log "  Re-testing SSH after auto-fix..."
+            # Re-test SSH after auto-fix
+            echo "    Re-testing SSH connection..."
+            log "  Re-testing SSH after auto-fix..."
 
-        SSH_RETEST=$(ssh ${CRUCIBLE_CONTROLLER_USER}@${CRUCIBLE_CONTROLLER_HOST} "ssh -o BatchMode=yes -o ConnectTimeout=5 -o StrictHostKeyChecking=no ${REG_KNI_USER}@${CRUCIBLE_CONTROLLER_HOST} 'echo Connected to: \$(hostname)' 2>&1" || echo "SSH_FAILED")
+            SSH_RETEST=$(ssh ${CRUCIBLE_CONTROLLER_USER}@${CRUCIBLE_CONTROLLER_HOST} "ssh -o BatchMode=yes -o ConnectTimeout=5 -o StrictHostKeyChecking=no ${REG_KNI_USER}@${BASTION_HOST} 'echo Connected to: \$(hostname)' 2>&1" || echo "SSH_FAILED")
 
-        log "  Re-test output: ${SSH_RETEST}"
-
-        if echo "$SSH_RETEST" | grep -q "Connected to:"; then
-            echo -e "    ${GREEN}✓ Auto-fix successful! Passwordless SSH now works${NC}"
-            log "  ✓ Auto-fix successful! SSH connection now works"
-            log "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
-            DEPS_PASSED=$((DEPS_PASSED + 1))
-        else
-            echo -e "    ${RED}✗ Auto-fix failed${NC}"
-            echo "    You may need to manually set up SSH keys"
-            echo ""
-            echo "    Manual fix: On Regulus host (${CRUCIBLE_CONTROLLER_HOST}), run:"
-            echo "      ssh ${CRUCIBLE_CONTROLLER_USER}@${CRUCIBLE_CONTROLLER_HOST}"
-            echo "      ssh-keygen -t rsa -N '' -f ~/.ssh/id_rsa  # If no key exists"
-            echo "      ssh-copy-id ${REG_KNI_USER}@${CRUCIBLE_CONTROLLER_HOST}"
-            echo ""
-            log "  ✗ Auto-fix failed - manual intervention required"
             log "  Re-test output: ${SSH_RETEST}"
-            log "  Manual fix required: ssh-copy-id ${REG_KNI_USER}@${CRUCIBLE_CONTROLLER_HOST}"
-            log "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
-            DEPS_FAILED=$((DEPS_FAILED + 1))
+
+            if echo "$SSH_RETEST" | grep -q "Connected to:"; then
+                echo -e "    ${GREEN}✓ Auto-fix successful! Passwordless SSH now works${NC}"
+                log "  ✓ Auto-fix successful! SSH connection now works"
+                log "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
+                DEPS_PASSED=$((DEPS_PASSED + 1))
+            else
+                echo -e "    ${RED}✗ Auto-fix failed${NC}"
+                echo "    You may need to manually set up SSH keys"
+                echo ""
+                echo "    Manual fix: On Regulus host (${CRUCIBLE_CONTROLLER_HOST}), run:"
+                echo "      ssh ${CRUCIBLE_CONTROLLER_USER}@${CRUCIBLE_CONTROLLER_HOST}"
+                echo "      ssh-keygen -t rsa -N '' -f ~/.ssh/id_rsa  # If no key exists"
+                echo "      ssh-copy-id ${REG_KNI_USER}@${BASTION_HOST}"
+                echo ""
+                log "  ✗ Auto-fix failed - manual intervention required"
+                log "  Re-test output: ${SSH_RETEST}"
+                log "  Manual fix required: ssh-copy-id ${REG_KNI_USER}@${BASTION_HOST}"
+                log "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
+                DEPS_FAILED=$((DEPS_FAILED + 1))
+            fi
         fi
     fi
 fi
@@ -705,7 +702,7 @@ log "Generating lab.config..."
 # root: Direct root access (most common in lab)
 REG_KNI_USER=${REG_KNI_USER:-root}
 log "  REG_KNI_USER: ${REG_KNI_USER}"
-log "  REG_OCPHOST: ${CRUCIBLE_CONTROLLER_HOST}"
+log "  REG_OCPHOST (bastion): ${BASTION_HOST}"
 log "  KUBECONFIG: ${KUBECONFIG_PATH}"
 
 # Create lab.config content
@@ -714,7 +711,7 @@ cat > /tmp/lab.config <<EOF
 # Generated: $(date)
 
 export REG_KNI_USER=${REG_KNI_USER}
-export REG_OCPHOST="${CRUCIBLE_CONTROLLER_HOST}"
+export REG_OCPHOST="${BASTION_HOST}"
 export KUBECONFIG=${KUBECONFIG_PATH}
 
 # Worker nodes (will be auto-detected by reg-smart-config)

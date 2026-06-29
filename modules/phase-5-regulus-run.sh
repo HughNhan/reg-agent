@@ -11,11 +11,24 @@ REG_AGENT_ROOT="$(cd "${SCRIPT_DIR}/.." && pwd)"
 # Load JSON configuration
 source "${REG_AGENT_ROOT}/modules/lib/json-config.sh"
 json_export_env ".regulus" "REGULUS"
+json_export_env ".crucible_controller" "CRUCIBLE_CONTROLLER"
 source "${REG_AGENT_ROOT}/vars/state.env"
 
 # Load logging library
 source "${REG_AGENT_ROOT}/modules/lib/logging.sh"
 init_logging "regulus" "phase-5-regulus-run"
+
+# Determine execution host (same logic as Phase 4)
+CRUCIBLE_CONTROLLER_TARGET=${CRUCIBLE_CONTROLLER_TARGET:-bastion}
+
+if [ "$CRUCIBLE_CONTROLLER_TARGET" = "bastion" ]; then
+    REGULUS_HOST="$BASTION_HOST"
+elif [ "$CRUCIBLE_CONTROLLER_TARGET" = "other" ]; then
+    REGULUS_HOST="$CRUCIBLE_CONTROLLER_OTHER_HOST"
+else
+    echo "Error: Invalid CRUCIBLE_CONTROLLER_TARGET: $CRUCIBLE_CONTROLLER_TARGET"
+    exit 1
+fi
 
 echo "============================================="
 echo "Phase 5: Regulus Test Execution"
@@ -24,20 +37,20 @@ echo ""
 log "========================================"
 log "Phase 5: Regulus Test Execution"
 log "========================================"
-echo "Bastion: $BASTION_HOST"
+echo "Controller: $REGULUS_HOST"
 echo "Regulus: $REGULUS_PATH"
 echo "Test: $REGULUS_TEST"
 echo ""
 
 # Check SSH access
-if ! ssh -o ConnectTimeout=10 root@$BASTION_HOST "echo ok" &>/dev/null; then
-    echo "Error: Cannot SSH to bastion at $BASTION_HOST"
+if ! ssh -o ConnectTimeout=10 root@$REGULUS_HOST "echo ok" &>/dev/null; then
+    echo "Error: Cannot SSH to controller at $REGULUS_HOST"
     exit 1
 fi
 
 # Verify Regulus is setup
 echo "Verifying Regulus setup..."
-if ! ssh root@$BASTION_HOST "[ -f ${REGULUS_PATH}/run_cpt.sh ]"; then
+if ! ssh root@$REGULUS_HOST "[ -f ${REGULUS_PATH}/run_cpt.sh ]"; then
     echo "Error: run_cpt.sh not found at ${REGULUS_PATH}"
     echo "Run: make regulus-setup"
     exit 1
@@ -70,7 +83,7 @@ echo "This may take several minutes to hours depending on test configuration..."
 echo ""
 
 # Execute run_cpt.sh directly (it handles bootstrap and all initialization)
-ssh root@$BASTION_HOST "cd ${REGULUS_PATH} && bash run_cpt.sh" 2>&1 | tee "${ARTIFACT_DIR}/logs/regulus-run.log"
+ssh root@$REGULUS_HOST "cd ${REGULUS_PATH} && bash run_cpt.sh" 2>&1 | tee "${ARTIFACT_DIR}/logs/regulus-run.log"
 
 RUN_EXIT_CODE=$?
 
