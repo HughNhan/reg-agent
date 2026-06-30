@@ -20,15 +20,16 @@ source "${REG_AGENT_ROOT}/modules/lib/json-config.sh"
 json_export_env ".regulus" "REGULUS"
 json_export_env ".crucible_controller" "CRUCIBLE_CONTROLLER"
 
-# Normalize CRUCIBLE_CONTROLLER_TARGET
+# Load state first (needed for BASTION_HOST)
+source "${REG_AGENT_ROOT}/vars/state.env"
+
+# Normalize CRUCIBLE_CONTROLLER_TARGET after loading BASTION_HOST
 # If target is set to a hostname that matches BASTION_HOST, normalize it to "bastion"
 if [ -n "$CRUCIBLE_CONTROLLER_TARGET" ] && [ -n "$BASTION_HOST" ]; then
     if [ "$CRUCIBLE_CONTROLLER_TARGET" = "$BASTION_HOST" ]; then
         CRUCIBLE_CONTROLLER_TARGET="bastion"
     fi
 fi
-
-source "${REG_AGENT_ROOT}/vars/state.env"
 
 # Load logging library
 source "${REG_AGENT_ROOT}/modules/lib/logging.sh"
@@ -113,7 +114,7 @@ echo "Run ID: $RUN_ID"
 echo "Artifacts: $ARTIFACT_DIR"
 echo ""
 
-# Run Regulus tests on bastion
+# Run Regulus tests on controller host
 echo "========================================="
 echo "Executing Regulus Tests (run_cpt.sh)"
 echo "========================================="
@@ -178,7 +179,7 @@ if [ -n "$LATEST_RESULT" ] && ssh root@${REGULUS_HOST} "[ -d '$LATEST_RESULT' ]"
         echo ""
     fi
 else
-    echo "⚠️  No results directory found on bastion"
+    echo -e "${YELLOW}⚠️  No results directory found on ${REGULUS_HOST}${NC}"
 fi
 
 # Create symlink to latest artifacts

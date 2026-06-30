@@ -26,14 +26,6 @@ json_export_env ".regulus" "REGULUS"
 json_export_env ".lab" "LAB"
 json_export_env ".crucible_controller" "CRUCIBLE_CONTROLLER"
 
-# Normalize CRUCIBLE_CONTROLLER_TARGET
-# If target is set to a hostname that matches BASTION_HOST, normalize it to "bastion"
-if [ -n "$CRUCIBLE_CONTROLLER_TARGET" ] && [ -n "$BASTION_HOST" ]; then
-    if [ "$CRUCIBLE_CONTROLLER_TARGET" = "$BASTION_HOST" ]; then
-        CRUCIBLE_CONTROLLER_TARGET="bastion"
-    fi
-fi
-
 # Source state
 if [ ! -f "${REG_AGENT_ROOT}/vars/state.env" ]; then
     echo -e "${RED}Error: State file not found${NC}"
@@ -45,6 +37,14 @@ fi
 REGULUS_PATH_FROM_STATE=$(grep "^REGULUS_PATH=" "${REG_AGENT_ROOT}/vars/state.env" 2>/dev/null | tail -1 | cut -d= -f2)
 
 source "${REG_AGENT_ROOT}/vars/state.env"
+
+# Normalize CRUCIBLE_CONTROLLER_TARGET after loading BASTION_HOST from state
+# If target is set to a hostname that matches BASTION_HOST, normalize it to "bastion"
+if [ -n "$CRUCIBLE_CONTROLLER_TARGET" ] && [ -n "$BASTION_HOST" ]; then
+    if [ "$CRUCIBLE_CONTROLLER_TARGET" = "$BASTION_HOST" ]; then
+        CRUCIBLE_CONTROLLER_TARGET="bastion"
+    fi
+fi
 
 # Load dependency checking library
 source "${REG_AGENT_ROOT}/modules/lib/check-dependencies.sh"
@@ -395,33 +395,41 @@ SSHCOPY
             log "  authorized_keys update:"
             log "${COPY_RESULT}"
 
-            # Re-test SSH after auto-fix
-            echo "    Re-testing SSH connection..."
-            log "  Re-testing SSH after auto-fix..."
-
-            SSH_RETEST=$(ssh ${CRUCIBLE_CONTROLLER_USER}@${CRUCIBLE_CONTROLLER_HOST} "ssh -o BatchMode=yes -o ConnectTimeout=5 -o StrictHostKeyChecking=no ${REG_KNI_USER}@${BASTION_HOST} 'echo Connected to: \$(hostname)' 2>&1" || echo "SSH_FAILED")
-
-            log "  Re-test output: ${SSH_RETEST}"
-
-            if echo "$SSH_RETEST" | grep -q "Connected to:"; then
-                echo -e "    ${GREEN}✓ Auto-fix successful! Passwordless SSH now works${NC}"
-                log "  ✓ Auto-fix successful! SSH connection now works"
-                log "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
-                DEPS_PASSED=$((DEPS_PASSED + 1))
-            else
-                echo -e "    ${RED}✗ Auto-fix failed${NC}"
-                echo "    You may need to manually set up SSH keys"
-                echo ""
-                echo "    Manual fix: On Regulus host (${CRUCIBLE_CONTROLLER_HOST}), run:"
-                echo "      ssh ${CRUCIBLE_CONTROLLER_USER}@${CRUCIBLE_CONTROLLER_HOST}"
-                echo "      ssh-keygen -t rsa -N '' -f ~/.ssh/id_rsa  # If no key exists"
-                echo "      ssh-copy-id ${REG_KNI_USER}@${BASTION_HOST}"
-                echo ""
-                log "  ✗ Auto-fix failed - manual intervention required"
-                log "  Re-test output: ${SSH_RETEST}"
-                log "  Manual fix required: ssh-copy-id ${REG_KNI_USER}@${BASTION_HOST}"
+            # Check if key copy reported an error
+            if echo "$COPY_RESULT" | grep -q "✗ Empty public key"; then
+                echo -e "    ${RED}✗ Failed to copy public key (empty key received)${NC}"
+                log "  ERROR: Empty public key received during copy"
                 log "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
                 DEPS_FAILED=$((DEPS_FAILED + 1))
+            else
+                # Re-test SSH after auto-fix
+                echo "    Re-testing SSH connection..."
+                log "  Re-testing SSH after auto-fix..."
+
+                SSH_RETEST=$(ssh ${CRUCIBLE_CONTROLLER_USER}@${CRUCIBLE_CONTROLLER_HOST} "ssh -o BatchMode=yes -o ConnectTimeout=5 -o StrictHostKeyChecking=no ${REG_KNI_USER}@${BASTION_HOST} 'echo Connected to: \$(hostname)' 2>&1" || echo "SSH_FAILED")
+
+                log "  Re-test output: ${SSH_RETEST}"
+
+                if echo "$SSH_RETEST" | grep -q "Connected to:"; then
+                    echo -e "    ${GREEN}✓ Auto-fix successful! Passwordless SSH now works${NC}"
+                    log "  ✓ Auto-fix successful! SSH connection now works"
+                    log "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
+                    DEPS_PASSED=$((DEPS_PASSED + 1))
+                else
+                    echo -e "    ${RED}✗ Auto-fix failed${NC}"
+                    echo "    You may need to manually set up SSH keys"
+                    echo ""
+                    echo "    Manual fix: On Regulus host (${CRUCIBLE_CONTROLLER_HOST}), run:"
+                    echo "      ssh ${CRUCIBLE_CONTROLLER_USER}@${CRUCIBLE_CONTROLLER_HOST}"
+                    echo "      ssh-keygen -t rsa -N '' -f ~/.ssh/id_rsa  # If no key exists"
+                    echo "      ssh-copy-id ${REG_KNI_USER}@${BASTION_HOST}"
+                    echo ""
+                    log "  ✗ Auto-fix failed - manual intervention required"
+                    log "  Re-test output: ${SSH_RETEST}"
+                    log "  Manual fix required: ssh-copy-id ${REG_KNI_USER}@${BASTION_HOST}"
+                    log "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
+                    DEPS_FAILED=$((DEPS_FAILED + 1))
+                fi
             fi
         fi
     fi
