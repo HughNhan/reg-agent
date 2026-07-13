@@ -313,11 +313,16 @@ modules/<module-name>/
 
 - Bash 4.0+
 - Python 3.9+ (for Jetlag/Crucible)
-- Ansible 2.9+ (for Jetlag)
+- Ansible 2.14+ (installed via pip recommended)
+- Ansible collections: `community.general`
 - jq (for JSON manipulation)
+- sshpass (for automated SSH setup)
+- rsync (for efficient file transfers)
 - SSH access to lab infrastructure
 - QUADS account (for lab allocation)
 - OpenShift pull secret
+
+**Note**: Run `./bootstrap.sh` to install all dependencies automatically. See [docs/DEPENDENCIES.md](docs/DEPENDENCIES.md) for detailed installation instructions and troubleshooting.
 
 ## Directory Structure
 
@@ -463,6 +468,7 @@ make deploy
 - **Main guide**: [README.md](README.md) (this file)
 - **Developer guide**: [CLAUDE.md](CLAUDE.md)
 - **Security policy**: [SECURITY.md](SECURITY.md)
+- **Dependencies**: [docs/DEPENDENCIES.md](docs/DEPENDENCIES.md) - Installation and troubleshooting
 - **Module docs**: `modules/*/CLAUDE.md`
 - **Config schema**: [config/CONFIG-SCHEMA.md](config/CONFIG-SCHEMA.md)
 

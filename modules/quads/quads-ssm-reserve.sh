@@ -286,13 +286,16 @@ if [ -n "$ASSIGNMENT_ID" ]; then
     echo ""
     echo "Waiting for assignment validation..."
     echo "Note: This can take 20-30 minutes if disk wiping is enabled"
+    echo "      Maximum wait time: 2 hours"
 
     QUADS_HOST="${QUADS_API_SERVER}"
-    MAX_WAIT=3600  # 1 hour (to handle wipe=true cases)
+    MAX_WAIT=7200  # 2 hours (to handle wipe=true cases and heavy load)
     ELAPSED=0
+    VALIDATION_SUCCESS=false
 
     while [ $ELAPSED -lt $MAX_WAIT ]; do
-        STATUS=$(curl -sk "https://${QUADS_HOST}/api/v3/assignments/${ASSIGNMENT_ID}" 2>/dev/null | jq -r '.validated | tostring' 2>/dev/null || echo "null")
+        ASSIGNMENT_DATA=$(curl -sk "https://${QUADS_HOST}/api/v3/assignments/${ASSIGNMENT_ID}" 2>/dev/null)
+        STATUS=$(echo "$ASSIGNMENT_DATA" | jq -r '.validated | tostring' 2>/dev/null || echo "null")
 
         if [ "$STATUS" = "true" ]; then
             echo -e "${GREEN}✅ Assignment validated and ready!${NC}"
@@ -301,10 +304,20 @@ if [ -n "$ASSIGNMENT_ID" ]; then
             echo "      (create user accounts, configure credentials, etc.)"
             echo "      Jetlag will retry automatically if Foreman is not ready yet"
             echo ""
+            VALIDATION_SUCCESS=true
             break
         elif [ "$STATUS" = "null" ] || [ -z "$STATUS" ]; then
-            echo -e "${YELLOW}⚠  Could not check validation status, proceeding anyway...${NC}"
-            break
+            echo -e "${RED}✗ Error: Could not check validation status${NC}"
+            echo "API Response: $ASSIGNMENT_DATA"
+            echo ""
+            echo "This could indicate:"
+            echo "  - Network connectivity issues"
+            echo "  - QUADS API problems"
+            echo "  - Assignment was terminated"
+            echo ""
+            echo "Please check manually:"
+            echo "  https://${QUADS_HOST}/api/v3/assignments/${ASSIGNMENT_ID}"
+            exit 1
         fi
 
         echo "Waiting for validation... (status: $STATUS, elapsed: ${ELAPSED}s / ${MAX_WAIT}s)"
@@ -312,8 +325,32 @@ if [ -n "$ASSIGNMENT_ID" ]; then
         ELAPSED=$((ELAPSED + 30))
     done
 
-    if [ $ELAPSED -ge $MAX_WAIT ]; then
-        echo -e "${YELLOW}⚠  Validation timeout reached after 1 hour, proceeding anyway...${NC}"
+    if [ "$VALIDATION_SUCCESS" = "false" ]; then
+        echo ""
+        echo -e "${RED}=========================================${NC}"
+        echo -e "${RED}✗ QUADS Validation Failed${NC}"
+        echo -e "${RED}=========================================${NC}"
+        echo ""
+        echo "Assignment ${ASSIGNMENT_ID} did not validate after 2 hours"
+        echo ""
+        echo "Possible causes:"
+        echo "  - Insufficient available hosts in the lab"
+        echo "  - Hardware issues with allocated machines"
+        echo "  - Disk wiping taking longer than expected"
+        echo "  - QUADS backend issues"
+        echo ""
+        echo "Next steps:"
+        echo "  1. Check assignment status manually:"
+        echo "     https://${QUADS_HOST}/assignments/${ASSIGNMENT_ID}"
+        echo ""
+        echo "  2. Wait longer and check again:"
+        echo "     make -C modules/quads validate"
+        echo ""
+        echo "  3. Or deallocate and try again:"
+        echo "     make deallocate-quads"
+        echo "     make deploy"
+        echo ""
+        exit 1
     fi
 fi
 

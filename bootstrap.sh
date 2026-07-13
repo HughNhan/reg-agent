@@ -45,18 +45,7 @@ fi
 if [ -n "$PKG_MGR" ]; then
     PACKAGES="jq curl git rsync"
 
-    # Check for ansible
-    if ! command -v ansible-playbook &> /dev/null; then
-        if [ "$PKG_MGR" = "dnf" ] || [ "$PKG_MGR" = "yum" ]; then
-            PACKAGES="$PACKAGES ansible-core"
-        else
-            PACKAGES="$PACKAGES ansible"
-        fi
-    else
-        echo -e "${GREEN}✓ Ansible already installed${NC}"
-    fi
-
-    # Install packages
+    # Install base packages (except ansible)
     echo "Installing: $PACKAGES"
     if [ "$PKG_MGR" = "apt-get" ]; then
         sudo $PKG_MGR update -y > /dev/null 2>&1
@@ -65,29 +54,88 @@ if [ -n "$PKG_MGR" ]; then
         sudo $PKG_MGR install -y $PACKAGES > /dev/null 2>&1
     fi
 
-    # Verify critical commands
-    MISSING=""
-    for cmd in ansible-playbook jq curl git rsync; do
-        if ! command -v $cmd &> /dev/null; then
-            MISSING="$MISSING $cmd"
-        fi
-    done
-
-    if [ -n "$MISSING" ]; then
-        echo -e "${RED}✗ Failed to install:$MISSING${NC}"
-        echo "Please install manually and re-run bootstrap.sh"
-        exit 1
-    fi
+    # Install sshpass (needed for bastion SSH setup)
+    echo "Installing sshpass..."
+    sudo $PKG_MGR install -y sshpass > /dev/null 2>&1 || true
 
     echo -e "${GREEN}✓ System dependencies installed${NC}"
 fi
 
+# Install Ansible via pip (more reliable than RPM)
+echo ""
+echo "Installing Ansible..."
+if ! command -v ansible-playbook &> /dev/null; then
+    echo "Installing ansible-core via pip..."
+    sudo pip3 install ansible-core==2.14.17 > /dev/null 2>&1 || true
+
+    # Add /usr/local/bin to PATH if not already there
+    if [[ ":$PATH:" != *":/usr/local/bin:"* ]]; then
+        export PATH="/usr/local/bin:$PATH"
+
+        # Add to shell RC file
+        SHELL_RC=""
+        if [ -n "$BASH_VERSION" ]; then
+            SHELL_RC="$HOME/.bashrc"
+        elif [ -n "$ZSH_VERSION" ]; then
+            SHELL_RC="$HOME/.zshrc"
+        fi
+
+        if [ -n "$SHELL_RC" ] && ! grep -q 'export PATH="/usr/local/bin:$PATH"' "$SHELL_RC" 2>/dev/null; then
+            echo 'export PATH="/usr/local/bin:$PATH"' >> "$SHELL_RC"
+            echo -e "${GREEN}✓ Added /usr/local/bin to PATH in $SHELL_RC${NC}"
+        fi
+    fi
+
+    # Verify installation
+    if /usr/local/bin/ansible-playbook --version &> /dev/null; then
+        echo -e "${GREEN}✓ Ansible installed via pip${NC}"
+    else
+        echo -e "${RED}✗ Failed to install Ansible${NC}"
+        echo ""
+        echo "Troubleshooting steps:"
+        echo "  1. Check pip3 is available: pip3 --version"
+        echo "  2. Install manually: sudo pip3 install ansible-core"
+        echo "  3. Add to PATH: export PATH=\"/usr/local/bin:\$PATH\""
+        echo ""
+        exit 1
+    fi
+else
+    # Check if ansible works (not broken metadata)
+    if ansible-playbook --version &> /dev/null; then
+        echo -e "${GREEN}✓ Ansible already installed${NC}"
+    else
+        echo -e "${YELLOW}⚠ Ansible installed but not working, reinstalling...${NC}"
+        sudo dnf remove -y ansible-core &> /dev/null || true
+        sudo pip3 install ansible-core==2.14.17 > /dev/null 2>&1 || true
+        export PATH="/usr/local/bin:$PATH"
+
+        # Verify reinstallation
+        if /usr/local/bin/ansible-playbook --version &> /dev/null || ansible-playbook --version &> /dev/null; then
+            echo -e "${GREEN}✓ Ansible reinstalled via pip${NC}"
+        else
+            echo -e "${RED}✗ Failed to reinstall Ansible${NC}"
+            echo ""
+            echo "Troubleshooting steps:"
+            echo "  1. Check pip3 is available: pip3 --version"
+            echo "  2. Install manually: sudo pip3 install ansible-core"
+            echo "  3. Add to PATH: export PATH=\"/usr/local/bin:\$PATH\""
+            echo ""
+            exit 1
+        fi
+    fi
+fi
+
 # Install required Ansible collections
+echo ""
+echo "Installing Ansible collections..."
 if command -v ansible-galaxy &> /dev/null; then
-    echo ""
-    echo "Installing Ansible collections..."
     ansible-galaxy collection install community.general > /dev/null 2>&1 || true
-    echo -e "${GREEN}✓ Ansible collections installed${NC}"
+    echo -e "${GREEN}✓ Ansible collections installed (community.general)${NC}"
+elif [ -f /usr/local/bin/ansible-galaxy ]; then
+    /usr/local/bin/ansible-galaxy collection install community.general > /dev/null 2>&1 || true
+    echo -e "${GREEN}✓ Ansible collections installed (community.general)${NC}"
+else
+    echo -e "${YELLOW}⚠ ansible-galaxy not found, skipping collection install${NC}"
 fi
 
 echo ""
