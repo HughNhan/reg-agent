@@ -66,7 +66,7 @@ echo ""
 echo "Installing Ansible..."
 if ! command -v ansible-playbook &> /dev/null; then
     echo "Installing ansible-core via pip..."
-    sudo pip3 install ansible-core==2.14.17 > /dev/null 2>&1
+    sudo pip3 install ansible-core==2.14.17 > /dev/null 2>&1 || true
 
     # Add /usr/local/bin to PATH if not already there
     if [[ ":$PATH:" != *":/usr/local/bin:"* ]]; then
@@ -91,7 +91,12 @@ if ! command -v ansible-playbook &> /dev/null; then
         echo -e "${GREEN}✓ Ansible installed via pip${NC}"
     else
         echo -e "${RED}✗ Failed to install Ansible${NC}"
-        echo "Please install manually: sudo pip3 install ansible-core"
+        echo ""
+        echo "Troubleshooting steps:"
+        echo "  1. Check pip3 is available: pip3 --version"
+        echo "  2. Install manually: sudo pip3 install ansible-core"
+        echo "  3. Add to PATH: export PATH=\"/usr/local/bin:\$PATH\""
+        echo ""
         exit 1
     fi
 else
@@ -101,9 +106,22 @@ else
     else
         echo -e "${YELLOW}⚠ Ansible installed but not working, reinstalling...${NC}"
         sudo dnf remove -y ansible-core &> /dev/null || true
-        sudo pip3 install ansible-core==2.14.17 > /dev/null 2>&1
+        sudo pip3 install ansible-core==2.14.17 > /dev/null 2>&1 || true
         export PATH="/usr/local/bin:$PATH"
-        echo -e "${GREEN}✓ Ansible reinstalled via pip${NC}"
+
+        # Verify reinstallation
+        if /usr/local/bin/ansible-playbook --version &> /dev/null || ansible-playbook --version &> /dev/null; then
+            echo -e "${GREEN}✓ Ansible reinstalled via pip${NC}"
+        else
+            echo -e "${RED}✗ Failed to reinstall Ansible${NC}"
+            echo ""
+            echo "Troubleshooting steps:"
+            echo "  1. Check pip3 is available: pip3 --version"
+            echo "  2. Install manually: sudo pip3 install ansible-core"
+            echo "  3. Add to PATH: export PATH=\"/usr/local/bin:\$PATH\""
+            echo ""
+            exit 1
+        fi
     fi
 fi
 
