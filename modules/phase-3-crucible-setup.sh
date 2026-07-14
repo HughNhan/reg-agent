@@ -238,9 +238,14 @@ fi
 echo "Cloning ${REPO_NAME} from git repository..."
 git clone ${CRUCIBLE_GIT_REPO}
 
-# Run the installation script
+# Run the installation script with environment variables
 cd ${REPO_NAME}
 echo "Running ${CRUCIBLE_INSTALL_SCRIPT}..."
+
+# Set environment variables to avoid interactive prompts
+export CRUCIBLE_NAME="reg-agent"
+export CRUCIBLE_EMAIL="none"
+
 bash ${CRUCIBLE_INSTALL_SCRIPT}
 
 echo "✓ Crucible installation script completed"
