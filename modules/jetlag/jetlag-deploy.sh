@@ -403,13 +403,67 @@ enable_bond_vlan: false
 use_prega_content: false
 EOF
 
-    # Add IPv6-specific config if needed
-    if [ "$NETWORK_STACK" = "ipv6" ] || [ "$NETWORK_STACK" = "dual" ]; then
-        cat >> ansible/vars/all.yml << EOF
+    # Configure network stack
+    if [ "$NETWORK_STACK" = "ipv4" ]; then
+        # IPv4 - disable registry/proxy
+        true  # No additional config needed for IPv4
+    elif [ "$NETWORK_STACK" = "ipv6" ] || [ "$NETWORK_STACK" = "dual" ]; then
+        # Configure network CIDRs based on stack type
+        if [ "$NETWORK_STACK" = "ipv6" ]; then
+            log "Configuring IPv6 network settings..."
+            NETWORK_COMMENT="IPv6 Network Configuration"
+            CP_NETWORKS=("fd00:198:18:10::/64")
+            CP_PREFIXES=("64")
+            CLUSTER_NETWORKS=("fd01::/48")
+            CLUSTER_PREFIXES=("64")
+            SERVICE_NETWORKS=("fd02::/112")
+        else
+            log "Configuring dual-stack network settings..."
+            NETWORK_COMMENT="Dual Stack Network Configuration"
+            CP_NETWORKS=("198.18.0.0/16" "fd00:198:18:10::/64")
+            CP_PREFIXES=("16" "64")
+            CLUSTER_NETWORKS=("10.128.0.0/14" "fd01::/48")
+            CLUSTER_PREFIXES=("23" "64")
+            SERVICE_NETWORKS=("172.30.0.0/16" "fd02::/112")
+        fi
 
-# IPv6 configuration
-ipv6_enabled: true
+        # Generate network configuration using arrays
+        {
+            echo ""
+            echo "# ${NETWORK_COMMENT}"
+            echo "controlplane_network:"
+            printf -- "- %s\n" "${CP_NETWORKS[@]}"
+            echo ""
+            echo "controlplane_network_prefix:"
+            printf -- "- %s\n" "${CP_PREFIXES[@]}"
+            echo ""
+            echo "cluster_network_cidr:"
+            printf -- "- %s\n" "${CLUSTER_NETWORKS[@]}"
+            echo ""
+            echo "cluster_network_host_prefix:"
+            printf -- "- %s\n" "${CLUSTER_PREFIXES[@]}"
+            echo ""
+            echo "service_network_cidr:"
+            printf -- "- %s\n" "${SERVICE_NETWORKS[@]}"
+        } >> ansible/vars/all.yml
+
+        # Configure IPv6-specific settings (proxy or disconnected mode)
+        if [ "$NETWORK_STACK" = "ipv6" ]; then
+            if [ "$IPV6_MODE" = "disconnected" ]; then
+                log "Configuring disconnected mode (local registry)..."
+                sed -i 's/^setup_bastion_registry: false$/setup_bastion_registry: true/' ansible/vars/all.yml
+                sed -i 's/^use_bastion_registry: false$/use_bastion_registry: true/' ansible/vars/all.yml
+                cat >> ansible/vars/all.yml << 'EOF'
+
+# Disconnected mode settings
+sync_operator_index: true
+sync_ocp_release: true
 EOF
+            else
+                log "Configuring proxy mode (Squid forward proxy)..."
+                sed -i 's/^setup_bastion_proxy: false$/setup_bastion_proxy: true/' ansible/vars/all.yml
+            fi
+        fi
     fi
 
     log "${GREEN}✓ Configuration generated${NC}"
