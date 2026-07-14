@@ -403,12 +403,73 @@ enable_bond_vlan: false
 use_prega_content: false
 EOF
 
-    # Add IPv6-specific config if needed
-    if [ "$NETWORK_STACK" = "ipv6" ] || [ "$NETWORK_STACK" = "dual" ]; then
-        cat >> ansible/vars/all.yml << EOF
+    # Configure network stack
+    if [ "$NETWORK_STACK" = "ipv4" ]; then
+        # IPv4 - disable registry/proxy
+        true  # No additional config needed for IPv4
+    elif [ "$NETWORK_STACK" = "ipv6" ]; then
+        log "Configuring IPv6 network settings..."
 
-# IPv6 configuration
-ipv6_enabled: true
+        # Add IPv6 network configuration explicitly
+        cat >> ansible/vars/all.yml << 'EOF'
+
+# IPv6 Network Configuration
+controlplane_network:
+- fd00:198:18:10::/64
+
+controlplane_network_prefix:
+- 64
+
+cluster_network_cidr:
+- fd01::/48
+
+cluster_network_host_prefix:
+- 64
+
+service_network_cidr:
+- fd02::/112
+EOF
+
+        if [ "$IPV6_MODE" = "disconnected" ]; then
+            log "Configuring disconnected mode (local registry)..."
+            sed -i 's/^setup_bastion_registry: false$/setup_bastion_registry: true/' ansible/vars/all.yml
+            sed -i 's/^use_bastion_registry: false$/use_bastion_registry: true/' ansible/vars/all.yml
+            cat >> ansible/vars/all.yml << 'EOF'
+
+# Disconnected mode settings
+sync_operator_index: true
+sync_ocp_release: true
+EOF
+        else
+            log "Configuring proxy mode (Squid forward proxy)..."
+            sed -i 's/^setup_bastion_proxy: false$/setup_bastion_proxy: true/' ansible/vars/all.yml
+        fi
+    elif [ "$NETWORK_STACK" = "dual" ]; then
+        log "Configuring dual-stack network settings..."
+
+        # Add dual-stack network configuration explicitly
+        cat >> ansible/vars/all.yml << 'EOF'
+
+# Dual Stack Network Configuration
+controlplane_network:
+- 198.18.0.0/16
+- fd00:198:18:10::/64
+
+controlplane_network_prefix:
+- 16
+- 64
+
+cluster_network_cidr:
+- 10.128.0.0/14
+- fd01::/48
+
+cluster_network_host_prefix:
+- 23
+- 64
+
+service_network_cidr:
+- 172.30.0.0/16
+- fd02::/112
 EOF
     fi
 
