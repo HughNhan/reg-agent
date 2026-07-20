@@ -35,7 +35,7 @@ if [ ! -f "${REG_AGENT_ROOT}/vars/state.env" ]; then
 fi
 
 # Capture existing REGULUS_PATH before sourcing state (to compare later)
-REGULUS_PATH_FROM_STATE=$(grep "^REGULUS_PATH=" "${REG_AGENT_ROOT}/vars/state.env" 2>/dev/null | tail -1 | cut -d= -f2)
+REGULUS_PATH_FROM_STATE=$(grep "^REGULUS_PATH=" "${REG_AGENT_ROOT}/vars/state.env" 2>/dev/null | tail -1 | cut -d= -f2 || true)
 
 source "${REG_AGENT_ROOT}/vars/state.env"
 

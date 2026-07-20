@@ -202,7 +202,7 @@ json_export_env() {
 
     # Get all keys and values from the section
     local keys
-    keys=$(jq -r "${section} | keys[]" "$config_file" 2>/dev/null)
+    keys=$(jq -r "${section} | keys[]" "$config_file" 2>/dev/null) || true
 
     for key in $keys; do
         # Skip comment keys

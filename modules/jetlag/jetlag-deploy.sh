@@ -610,11 +610,11 @@ else
     INVENTORY_FILE="ansible/inventory/${CLOUD_NAME}.local"
 
     # Extract BMC credentials from inventory
-    BMC_USER=$(grep -A 5 "^\[bastion:vars\]" "$INVENTORY_FILE" | grep "^bmc_user=" | cut -d= -f2)
-    BMC_PASSWORD=$(grep -A 5 "^\[bastion:vars\]" "$INVENTORY_FILE" | grep "^bmc_password=" | cut -d= -f2)
+    BMC_USER=$(grep -A 5 "^\[bastion:vars\]" "$INVENTORY_FILE" | grep "^bmc_user=" | cut -d= -f2 || true)
+    BMC_PASSWORD=$(grep -A 5 "^\[bastion:vars\]" "$INVENTORY_FILE" | grep "^bmc_password=" | cut -d= -f2 || true)
 
     # Extract bastion BMC address
-    BASTION_BMC=$(grep -A 1 "^\[bastion\]" "$INVENTORY_FILE" | grep -v "^\[" | grep "bmc_address=" | sed 's/.*bmc_address=\([^ ]*\).*/\1/')
+    BASTION_BMC=$(grep -A 1 "^\[bastion\]" "$INVENTORY_FILE" | grep -v "^\[" | grep "bmc_address=" | sed 's/.*bmc_address=\([^ ]*\).*/\1/' || true)
 
     # SSH password for lab hosts (different from BMC password)
     # Must be configured in vars/config.json during 'make configure'
