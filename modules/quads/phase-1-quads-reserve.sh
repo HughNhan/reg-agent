@@ -3,6 +3,7 @@
 # Calls appropriate QUADS method based on QUADS_METHOD config
 
 set -e
+set -o pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 REG_AGENT_ROOT="$(cd "${SCRIPT_DIR}/.." && pwd)"

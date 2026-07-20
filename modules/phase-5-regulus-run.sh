@@ -3,6 +3,7 @@
 # Executes Regulus tests via run_cpt.sh (which handles reg-smart-config, init-lab, and test execution)
 
 set -e
+set -o pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 REG_AGENT_ROOT="$(cd "${SCRIPT_DIR}/.." && pwd)"
