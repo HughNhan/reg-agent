@@ -3,6 +3,7 @@
 # This is the default and recommended method
 
 set -e
+set -o pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 REG_AGENT_ROOT="$(cd "${SCRIPT_DIR}/../.." && pwd)"
@@ -286,10 +287,10 @@ if [ -n "$ASSIGNMENT_ID" ]; then
     echo ""
     echo "Waiting for assignment validation..."
     echo "Note: This can take 20-30 minutes if disk wiping is enabled"
-    echo "      Maximum wait time: 2 hours"
+    echo "      Maximum wait time: 3 hours"
 
     QUADS_HOST="${QUADS_API_SERVER}"
-    MAX_WAIT=7200  # 2 hours (to handle wipe=true cases and heavy load)
+    MAX_WAIT=10800  # 3 hours (to handle wipe=true cases and heavy load)
     ELAPSED=0
     VALIDATION_SUCCESS=false
 

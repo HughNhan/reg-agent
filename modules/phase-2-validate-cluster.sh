@@ -3,6 +3,7 @@
 # Validates that cluster is accessible and healthy
 
 set -e
+set -o pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 REG_AGENT_ROOT="$(cd "${SCRIPT_DIR}/.." && pwd)"

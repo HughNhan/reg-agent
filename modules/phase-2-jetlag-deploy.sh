@@ -3,6 +3,7 @@
 # Wrapper script that delegates to the Jetlag module deployment script
 
 set -e
+set -o pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 
