@@ -292,11 +292,18 @@ if [ -n "$ASSIGNMENT_ID" ]; then
 
     QUADS_HOST="${QUADS_API_SERVER}"
     MAX_WAIT=${QUADS_VALIDATION_TIMEOUT}
-    ELAPSED=0
+    DEADLINE=$(( $(date +%s) + MAX_WAIT ))
     VALIDATION_SUCCESS=false
 
-    while [ $ELAPSED -lt $MAX_WAIT ]; do
-        ASSIGNMENT_DATA=$(curl -sk "https://${QUADS_HOST}/api/v3/assignments/${ASSIGNMENT_ID}" 2>/dev/null)
+    while true; do
+        NOW=$(date +%s)
+        REMAINING=$(( DEADLINE - NOW ))
+        if [ $REMAINING -le 0 ]; then
+            break
+        fi
+
+        CURL_TIMEOUT=$(( REMAINING < 60 ? REMAINING : 60 ))
+        ASSIGNMENT_DATA=$(curl -sk --max-time "$CURL_TIMEOUT" "https://${QUADS_HOST}/api/v3/assignments/${ASSIGNMENT_ID}" 2>/dev/null) || true
         STATUS=$(echo "$ASSIGNMENT_DATA" | jq -r '.validated | tostring' 2>/dev/null || echo "null")
 
         if [ "$STATUS" = "true" ]; then
@@ -322,9 +329,10 @@ if [ -n "$ASSIGNMENT_ID" ]; then
             exit 1
         fi
 
+        ELAPSED=$(( MAX_WAIT - REMAINING ))
         echo "Waiting for validation... (status: $STATUS, elapsed: ${ELAPSED}s / ${MAX_WAIT}s)"
-        sleep 30
-        ELAPSED=$((ELAPSED + 30))
+        SLEEP_TIME=$(( REMAINING < 30 ? REMAINING : 30 ))
+        sleep "$SLEEP_TIME"
     done
 
     if [ "$VALIDATION_SUCCESS" = "false" ]; then
