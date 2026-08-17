@@ -42,6 +42,7 @@ QUADS_USER_DOMAIN=${QUADS_USER_DOMAIN:-"redhat.com"}
 QUADS_WIPE_DISKS=${QUADS_WIPE_DISKS:-"yes"}
 SHORT_DESCRIPTION=${SHORT_DESCRIPTION:-"$QUADS_WORKLOAD_NAME"}
 QUADS_PREFERRED_MODEL=${QUADS_PREFERRED_MODEL:-"any"}
+QUADS_VALIDATION_TIMEOUT=${QUADS_VALIDATION_TIMEOUT:-10800}
 
 QUADS_REPO="${REG_AGENT_ROOT}/repos/ansible-quads-ssm"
 
@@ -287,15 +288,22 @@ if [ -n "$ASSIGNMENT_ID" ]; then
     echo ""
     echo "Waiting for assignment validation..."
     echo "Note: This can take 20-30 minutes if disk wiping is enabled"
-    echo "      Maximum wait time: 3 hours"
+    echo "      Maximum wait time: $((QUADS_VALIDATION_TIMEOUT / 3600))h $(( (QUADS_VALIDATION_TIMEOUT % 3600) / 60 ))m"
 
     QUADS_HOST="${QUADS_API_SERVER}"
-    MAX_WAIT=10800  # 3 hours (to handle wipe=true cases and heavy load)
-    ELAPSED=0
+    MAX_WAIT=${QUADS_VALIDATION_TIMEOUT}
+    DEADLINE=$(( $(date +%s) + MAX_WAIT ))
     VALIDATION_SUCCESS=false
 
-    while [ $ELAPSED -lt $MAX_WAIT ]; do
-        ASSIGNMENT_DATA=$(curl -sk "https://${QUADS_HOST}/api/v3/assignments/${ASSIGNMENT_ID}" 2>/dev/null)
+    while true; do
+        NOW=$(date +%s)
+        REMAINING=$(( DEADLINE - NOW ))
+        if [ $REMAINING -le 0 ]; then
+            break
+        fi
+
+        CURL_TIMEOUT=$(( REMAINING < 60 ? REMAINING : 60 ))
+        ASSIGNMENT_DATA=$(curl -sk --max-time "$CURL_TIMEOUT" "https://${QUADS_HOST}/api/v3/assignments/${ASSIGNMENT_ID}" 2>/dev/null) || true
         STATUS=$(echo "$ASSIGNMENT_DATA" | jq -r '.validated | tostring' 2>/dev/null || echo "null")
 
         if [ "$STATUS" = "true" ]; then
@@ -321,9 +329,10 @@ if [ -n "$ASSIGNMENT_ID" ]; then
             exit 1
         fi
 
+        ELAPSED=$(( MAX_WAIT - REMAINING ))
         echo "Waiting for validation... (status: $STATUS, elapsed: ${ELAPSED}s / ${MAX_WAIT}s)"
-        sleep 30
-        ELAPSED=$((ELAPSED + 30))
+        SLEEP_TIME=$(( REMAINING < 30 ? REMAINING : 30 ))
+        sleep "$SLEEP_TIME"
     done
 
     if [ "$VALIDATION_SUCCESS" = "false" ]; then
@@ -332,7 +341,7 @@ if [ -n "$ASSIGNMENT_ID" ]; then
         echo -e "${RED}✗ QUADS Validation Failed${NC}"
         echo -e "${RED}=========================================${NC}"
         echo ""
-        echo "Assignment ${ASSIGNMENT_ID} did not validate after 2 hours"
+        echo "Assignment ${ASSIGNMENT_ID} did not validate after $((MAX_WAIT / 3600))h $(( (MAX_WAIT % 3600) / 60 ))m"
         echo ""
         echo "Possible causes:"
         echo "  - Insufficient available hosts in the lab"
