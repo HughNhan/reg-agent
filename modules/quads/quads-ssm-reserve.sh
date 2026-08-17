@@ -42,6 +42,7 @@ QUADS_USER_DOMAIN=${QUADS_USER_DOMAIN:-"redhat.com"}
 QUADS_WIPE_DISKS=${QUADS_WIPE_DISKS:-"yes"}
 SHORT_DESCRIPTION=${SHORT_DESCRIPTION:-"$QUADS_WORKLOAD_NAME"}
 QUADS_PREFERRED_MODEL=${QUADS_PREFERRED_MODEL:-"any"}
+QUADS_VALIDATION_TIMEOUT=${QUADS_VALIDATION_TIMEOUT:-10800}
 
 QUADS_REPO="${REG_AGENT_ROOT}/repos/ansible-quads-ssm"
 
@@ -287,10 +288,10 @@ if [ -n "$ASSIGNMENT_ID" ]; then
     echo ""
     echo "Waiting for assignment validation..."
     echo "Note: This can take 20-30 minutes if disk wiping is enabled"
-    echo "      Maximum wait time: 3 hours"
+    echo "      Maximum wait time: $((QUADS_VALIDATION_TIMEOUT / 3600))h $(( (QUADS_VALIDATION_TIMEOUT % 3600) / 60 ))m"
 
     QUADS_HOST="${QUADS_API_SERVER}"
-    MAX_WAIT=10800  # 3 hours (to handle wipe=true cases and heavy load)
+    MAX_WAIT=${QUADS_VALIDATION_TIMEOUT}
     ELAPSED=0
     VALIDATION_SUCCESS=false
 
@@ -332,7 +333,7 @@ if [ -n "$ASSIGNMENT_ID" ]; then
         echo -e "${RED}✗ QUADS Validation Failed${NC}"
         echo -e "${RED}=========================================${NC}"
         echo ""
-        echo "Assignment ${ASSIGNMENT_ID} did not validate after 2 hours"
+        echo "Assignment ${ASSIGNMENT_ID} did not validate after $((MAX_WAIT / 3600))h $(( (MAX_WAIT % 3600) / 60 ))m"
         echo ""
         echo "Possible causes:"
         echo "  - Insufficient available hosts in the lab"

@@ -55,6 +55,7 @@ EXISTING_NUM_HOSTS=$(jq -r '.quads.num_hosts // "6"' "$CONFIG_JSON")
 EXISTING_PREFERRED_MODEL=$(jq -r '.quads.preferred_model // "r750"' "$CONFIG_JSON")
 EXISTING_WORKLOAD_NAME=$(jq -r '.quads.workload_name // ""' "$CONFIG_JSON")
 EXISTING_WIPE_DISKS=$(jq -r '.quads.wipe_disks // "yes"' "$CONFIG_JSON")
+EXISTING_VALIDATION_TIMEOUT=$(jq -r '.quads.validation_timeout // "10800"' "$CONFIG_JSON")
 
 # Check if QUADS appears to be configured
 QUADS_CONFIGURED=false
@@ -71,6 +72,7 @@ if [ -n "$EXISTING_API_SERVER" ] && [ -n "$EXISTING_USERNAME" ]; then
     echo "  preferred_model: $EXISTING_PREFERRED_MODEL"
     echo "  workload_name: $EXISTING_WORKLOAD_NAME"
     echo "  wipe_disks: $EXISTING_WIPE_DISKS"
+    echo "  validation_timeout: ${EXISTING_VALIDATION_TIMEOUT}s ($((EXISTING_VALIDATION_TIMEOUT / 3600))h)"
     echo ""
 fi
 
@@ -189,6 +191,7 @@ if [ "$NEW_MODE" = "import" ]; then
     NEW_PREFERRED_MODEL=""
     NEW_WORKLOAD_NAME=""
     NEW_WIPE_DISKS="no"
+    NEW_VALIDATION_TIMEOUT="$EXISTING_VALIDATION_TIMEOUT"
 
 else
     # Allocate mode: Ask for allocation parameters
@@ -229,13 +232,27 @@ else
     done
     echo ""
 
+    # Validation timeout
+    echo "10. Validation Timeout (seconds)"
+    echo "    How long to wait for QUADS assignment validation"
+    echo "    Default: 10800 (3 hours)"
+    while true; do
+        prompt_with_default "   Timeout" "$EXISTING_VALIDATION_TIMEOUT" NEW_VALIDATION_TIMEOUT
+        if [[ "$NEW_VALIDATION_TIMEOUT" =~ ^[0-9]+$ ]] && [[ "$NEW_VALIDATION_TIMEOUT" -ge 600 ]]; then
+            break
+        else
+            echo -e "   ${RED}Timeout must be a number >= 600 (10 minutes)${NC}"
+        fi
+    done
+    echo ""
+
     # Set cloud_name to empty for allocate mode (will be assigned by QUADS)
     NEW_CLOUD_NAME=""
 fi
 
 # Lab SSH password (shared setting)
 EXISTING_LAB_PASSWORD=$(jq -r '.lab.ssh_password // ""' "$CONFIG_JSON")
-echo "10. Lab SSH Password (shared setting)"
+echo "11. Lab SSH Password (shared setting)"
 echo "    Default password for SSH to lab machines"
 read -sp "    Lab password (hidden): " NEW_LAB_PASSWORD
 echo ""
@@ -267,6 +284,7 @@ jq --arg mode "$NEW_MODE" \
    --arg model "$NEW_PREFERRED_MODEL" \
    --arg workload "$NEW_WORKLOAD_NAME" \
    --arg wipe "$NEW_WIPE_DISKS" \
+   --argjson validation_timeout "$NEW_VALIDATION_TIMEOUT" \
    --arg lab_password "$NEW_LAB_PASSWORD" \
    '.quads.mode = $mode |
     .quads.api_server = $api_server |
@@ -278,6 +296,7 @@ jq --arg mode "$NEW_MODE" \
     .quads.preferred_model = $model |
     .quads.workload_name = $workload |
     .quads.wipe_disks = $wipe |
+    .quads.validation_timeout = $validation_timeout |
     .lab.ssh_password = $lab_password' \
    "$CONFIG_JSON" > "${CONFIG_JSON}.tmp"
 

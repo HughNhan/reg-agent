@@ -77,6 +77,11 @@
           "type": "string",
           "minLength": 1,
           "description": "Cloud name for import mode (e.g., cloud23)"
+        },
+        "validation_timeout": {
+          "type": "integer",
+          "minimum": 600,
+          "description": "Max seconds to wait for QUADS assignment validation (default: 10800 = 3 hours)"
         }
       },
       "required": ["mode", "lab"],

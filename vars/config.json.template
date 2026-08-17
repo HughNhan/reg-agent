@@ -15,7 +15,8 @@
     "workload_name": "",
     "short_description": "",
     "wipe_disks": "yes",
-    "cloud_name": ""
+    "cloud_name": "",
+    "validation_timeout": 10800
   },
   "lab": {
     "ssh_username": "root",

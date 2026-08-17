@@ -245,6 +245,10 @@ validate_quads_config() {
         if [[ -z "$workload_name" ]]; then
             $warn_fn "Missing quads.workload_name" ".quads.workload_name"
         fi
+        local validation_timeout=$(jq -r '.quads.validation_timeout // empty' "$config_file")
+        if [[ -n "$validation_timeout" ]] && [[ "$validation_timeout" -lt 600 ]]; then
+            $warn_fn "quads.validation_timeout is very low (${validation_timeout}s < 600s)" ".quads.validation_timeout"
+        fi
     elif [[ "$mode" == "import" ]]; then
         # cloud_name only required for scalelab/performancelab
         if [[ "$lab" != "byol" ]]; then
