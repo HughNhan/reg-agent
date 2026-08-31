@@ -55,56 +55,63 @@ echo "Run ID: $RUN_ID" >> "$VALIDATION_REPORT"
 echo "Timestamp: $(date)" >> "$VALIDATION_REPORT"
 echo "" >> "$VALIDATION_REPORT"
 
-# Check 1: Test execution exit code
-echo "Check 1: Test Execution Status"
+# Check 1: Wrapper exit code (advisory only)
+# "make jobs" is a loop over jobs.config and does not produce a reliable
+# aggregate exit code, so RUN_EXIT_CODE only tells us whether the run_cpt.sh
+# wrapper/SSH invocation crashed. It is reported but does NOT decide the
+# verdict -- the jobs.log ERROR scan (Check 2) is the source of truth.
+echo "Check 1: Wrapper Execution Status (advisory)"
 echo "--------------------------------------" >> "$VALIDATION_REPORT"
 
 if [ "$RUN_EXIT_CODE" = "0" ]; then
-    echo "✅ Test execution: PASSED (exit code 0)" | tee -a "$VALIDATION_REPORT"
+    echo "✅ run_cpt.sh wrapper: exit code 0" | tee -a "$VALIDATION_REPORT"
 else
-    echo "❌ Test execution: FAILED (exit code $RUN_EXIT_CODE)" | tee -a "$VALIDATION_REPORT"
-    VALIDATION_PASSED=false
+    echo "⚠️  run_cpt.sh wrapper: non-zero exit code (${RUN_EXIT_CODE:-unknown}) — advisory, see Check 2" | tee -a "$VALIDATION_REPORT"
 fi
 echo "" >> "$VALIDATION_REPORT"
 
-# Check 2: Result files exist
+# Check 2: Jobs log collected and error-free (the verdict)
+# "make jobs" writes a timestamped jobs.log-<date>. Success = the log was
+# collected from the controller AND contains no ERROR lines.
 echo ""
-echo "Check 2: Result Files"
+echo "Check 2: Jobs Log"
 echo "--------------------------------------" >> "$VALIDATION_REPORT"
 
-if [ -d "${ARTIFACT_DIR}/regulus-results" ]; then
-    NUM_FILES=$(find "${ARTIFACT_DIR}/regulus-results" -type f | wc -l)
-    echo "✅ Result files: FOUND ($NUM_FILES files)" | tee -a "$VALIDATION_REPORT"
-
-    # List key files
-    if [ -f "${ARTIFACT_DIR}/regulus-results/result-summary.txt" ]; then
-        echo "  ✓ result-summary.txt found" | tee -a "$VALIDATION_REPORT"
-    fi
+# Prefer the log recorded by Phase 5; fall back to newest collected jobs.log-*.
+JOBS_LOG_PATH=""
+if [ -n "$JOBS_LOG" ] && [ -f "${ARTIFACT_DIR}/regulus-results/${JOBS_LOG}" ]; then
+    JOBS_LOG_PATH="${ARTIFACT_DIR}/regulus-results/${JOBS_LOG}"
 else
-    echo "❌ Result files: NOT FOUND" | tee -a "$VALIDATION_REPORT"
-    VALIDATION_PASSED=false
+    JOBS_LOG_PATH=$(ls -1t "${ARTIFACT_DIR}"/regulus-results/jobs.log-* 2>/dev/null | head -1)
 fi
-echo "" >> "$VALIDATION_REPORT"
 
-# Check 3: Parse results (if result-summary.txt exists)
-echo ""
-echo "Check 3: Result Summary"
-echo "--------------------------------------" >> "$VALIDATION_REPORT"
-
-if [ -f "${ARTIFACT_DIR}/regulus-results/result-summary.txt" ]; then
-    echo "Result Summary:" | tee -a "$VALIDATION_REPORT"
-    echo "" >> "$VALIDATION_REPORT"
-    cat "${ARTIFACT_DIR}/regulus-results/result-summary.txt" >> "$VALIDATION_REPORT"
-    echo "" >> "$VALIDATION_REPORT"
-
-    # Extract key metrics (this is basic - can be enhanced)
-    if grep -q "result:" "${ARTIFACT_DIR}/regulus-results/result-summary.txt"; then
-        echo "✅ Metrics found in result summary" | tee -a "$VALIDATION_REPORT"
+if [ -n "$JOBS_LOG_PATH" ] && [ -f "$JOBS_LOG_PATH" ]; then
+    ERROR_COUNT=$(grep -c "ERROR" "$JOBS_LOG_PATH" || true)
+    if [ "$ERROR_COUNT" -eq 0 ]; then
+        echo "✅ Jobs log: $(basename "$JOBS_LOG_PATH") (no ERRORs)" | tee -a "$VALIDATION_REPORT"
     else
-        echo "⚠️  No metrics found in result summary" | tee -a "$VALIDATION_REPORT"
+        echo "❌ Jobs log: $(basename "$JOBS_LOG_PATH") ($ERROR_COUNT ERROR line(s))" | tee -a "$VALIDATION_REPORT"
+        grep -n "ERROR" "$JOBS_LOG_PATH" | tee -a "$VALIDATION_REPORT"
+        VALIDATION_PASSED=false
     fi
 else
-    echo "⚠️  result-summary.txt not found" | tee -a "$VALIDATION_REPORT"
+    echo "❌ Jobs log: NOT COLLECTED — make jobs may not have run" | tee -a "$VALIDATION_REPORT"
+    VALIDATION_PASSED=false
+fi
+echo "" >> "$VALIDATION_REPORT"
+
+# Check 3: Run summary (tail of the jobs log, for context)
+echo ""
+echo "Check 3: Run Summary"
+echo "--------------------------------------" >> "$VALIDATION_REPORT"
+
+if [ -n "$JOBS_LOG_PATH" ] && [ -f "$JOBS_LOG_PATH" ]; then
+    echo "Last 20 lines of $(basename "$JOBS_LOG_PATH"):" | tee -a "$VALIDATION_REPORT"
+    echo "" >> "$VALIDATION_REPORT"
+    tail -20 "$JOBS_LOG_PATH" >> "$VALIDATION_REPORT"
+    echo "" >> "$VALIDATION_REPORT"
+else
+    echo "⚠️  No jobs log to summarize" | tee -a "$VALIDATION_REPORT"
 fi
 echo "" >> "$VALIDATION_REPORT"
 

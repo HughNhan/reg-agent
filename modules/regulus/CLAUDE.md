@@ -138,25 +138,39 @@ REGULUS_PATH=/root/cpt-regulus
    ARTIFACT_DIR=${REG_AGENT_ROOT}/artifacts/${RUN_ID}
    ```
 
-3. **Execute Tests on Bastion** (via `run_cpt.sh`):
+3. **Execute Tests on the Controller** (via `run_cpt.sh`):
    ```bash
-   ssh root@$BASTION_HOST bash <<'REGULUS_RUN'
-   cd ${REGULUS_PATH}
-   source bootstrap.sh
-   ./run_cpt.sh  # Runs: reg-smart-config → init-lab → init-jobs → tests
-   REGULUS_RUN
+   ssh root@${REGULUS_HOST} "cd ${REGULUS_PATH} && bash run_cpt.sh"
    ```
 
-   **Note**: `run_cpt.sh` internally handles:
-   - `reg-smart-config`: Auto-detect NICs and workers
-   - `make init-lab`: Run lab-analyzer, SRIOV_INIT, INVENTORY
-   - `make init-jobs`: Configure test jobs
-   - Test execution
+   **Note**: `run_cpt.sh` is a thin wrapper that runs in the Regulus repo root
+   (`${REGULUS_PATH}`) and drives `make jobs` (a loop over `jobs.config`).
+   It handles reg-smart-config, init-lab, and init-jobs internally.
+
+   **Execution host**: `${REGULUS_HOST}` is resolved from
+   `crucible_controller.target` in `vars/config.json` — it is the bastion by
+   default (`target=bastion`) but can be a separate controller (`target=other`,
+   `crucible_controller.other_host`). Tests do **not** necessarily run on the
+   bastion.
+
+   **Reuse mode**: Set `REG_REUSE_LAST_RUN=1` to skip `run_cpt.sh` and only
+   collect/validate the `jobs.log-<date>` left by a previous run. Useful for
+   iterating on collection/validation logic without re-running `make jobs`.
 
 4. **Collect Results**:
-   - Reads symlink at `${REGULUS_PATH}/latest` (points to latest results)
-   - Copies results from bastion to local `artifacts/${RUN_ID}/regulus-results/`
-   - Copies execution log to `artifacts/${RUN_ID}/logs/regulus-run.log`
+   - `make jobs` writes a timestamped `jobs.log-<date>` in `${REGULUS_PATH}`
+     (the repo root, where `run_cpt.sh` runs). This log is the authoritative
+     record of the run and the handoff to Phase 6.
+   - Phase 5 finds the **newest** `jobs.log-*` on `${REGULUS_HOST}` (by mtime,
+     so stale logs from prior runs are ignored) and `scp`s it into
+     `artifacts/${RUN_ID}/regulus-results/`.
+   - The collected filename is saved to state as `JOBS_LOG`.
+   - The wrapper's stdout/stderr is captured to
+     `artifacts/${RUN_ID}/logs/regulus-run.log`.
+
+   **Note**: `run_es.sh` prints `Has errors: True/False`, but that reflects only
+   whether Elasticsearch document build/upload succeeded — **not** whether the
+   test passed. It is not used as a verdict.
 
 5. **Create Symlink**:
    ```bash
@@ -166,8 +180,9 @@ REGULUS_PATH=/root/cpt-regulus
 6. **Save Run Metadata**:
    ```bash
    RUN_ID=run-20260609-143022
-   RUN_EXIT_CODE=0
+   RUN_EXIT_CODE=0                       # advisory only (see below)
    RUN_TIMESTAMP=2026-06-09T14:30:22-05:00
+   JOBS_LOG=jobs.log-2026-06-09-14-30-22 # collected log, verdict source for Phase 6
    ```
 
 #### Output Files
@@ -175,20 +190,23 @@ REGULUS_PATH=/root/cpt-regulus
 **Artifacts Structure**:
 ```
 artifacts/
-├── run-20260609-143022/           # Timestamped run directory
+├── run-20260609-143022/               # Timestamped run directory
 │   ├── logs/
-│   │   └── regulus-run.log        # Full execution log
-│   └── regulus-results/           # Copied from bastion
-│       ├── result-summary.txt     # Test result summary
-│       ├── crucible-data/         # Raw Crucible data
-│       └── ...                    # Additional result files
-└── latest -> run-20260609-143022  # Symlink to latest run
+│   │   └── regulus-run.log            # run_cpt.sh wrapper stdout/stderr
+│   └── regulus-results/               # Collected from the controller
+│       └── jobs.log-<date>            # make jobs log (verdict source)
+└── latest -> run-20260609-143022      # Symlink to latest run
 ```
 
 #### Exit Codes
 
-- `0`: Tests completed successfully
-- Non-zero: Tests failed (exit code from `run_cpt.sh`)
+- `0`: `run_cpt.sh` wrapper completed
+- Non-zero: wrapper/SSH invocation failed
+
+**Note**: `make jobs` is a loop over `jobs.config` and does not produce a
+reliable aggregate exit code, so `RUN_EXIT_CODE` is treated as **advisory** only.
+The pass/fail verdict is decided in Phase 6 by scanning `jobs.log-<date>` for
+`ERROR` lines.
 
 ## Phase 6: Result Validation
 
@@ -205,24 +223,23 @@ artifacts/
 
 2. **Run Validation Checks**:
 
-   **Check 1: Test Execution Status**
+   **Check 1: Wrapper Execution Status (advisory)**
    - Examines `RUN_EXIT_CODE` from state
-   - PASS if exit code = 0, FAIL otherwise
+   - Reported only — does **not** decide the verdict (see Check 2)
 
-   **Check 2: Result Files Exist**
-   - Verifies `regulus-results/` directory exists
-   - Counts result files
-   - Checks for key files like `result-summary.txt`
+   **Check 2: Jobs Log (the verdict)**
+   - Locates the collected `jobs.log-<date>` (via `JOBS_LOG`, or newest
+     `jobs.log-*` in `regulus-results/`)
+   - Scans it for `ERROR` lines (case-sensitive)
+   - PASS if the log was collected AND has zero `ERROR` lines
+   - FAIL if any `ERROR` line is found (offending lines are printed), or if no
+     log was collected (`make jobs` did not run)
 
-   **Check 3: Parse Result Summary**
-   - Reads `result-summary.txt` if present
-   - Extracts performance metrics
-   - Includes in validation report
+   **Check 3: Run Summary**
+   - Prints the last 20 lines of `jobs.log-<date>` into the report for context
 
    **Check 4: Log Analysis**
-   - Verifies execution log exists
-   - Checks log size
-   - Scans for error mentions (warning only)
+   - Verifies the `regulus-run.log` wrapper log exists (informational)
 
 3. **Generate Reports**:
 
@@ -234,20 +251,18 @@ artifacts/
    Run ID: run-20260609-143022
    Timestamp: 2026-06-09 14:35:10
 
-   Check 1: Test Execution Status
+   Check 1: Wrapper Execution Status (advisory)
    --------------------------------------
-   ✅ Test execution: PASSED (exit code 0)
+   ✅ run_cpt.sh wrapper: exit code 0
 
-   Check 2: Result Files
+   Check 2: Jobs Log
    --------------------------------------
-   ✅ Result files: FOUND (127 files)
-     ✓ result-summary.txt found
+   ✅ Jobs log: jobs.log-2026-06-09-14-30-22 (no ERRORs)
 
-   Check 3: Result Summary
+   Check 3: Run Summary
    --------------------------------------
-   Result Summary:
-   [Contents of result-summary.txt]
-   ✅ Metrics found in result summary
+   Last 20 lines of jobs.log-2026-06-09-14-30-22:
+   [tail of jobs.log]
 
    Check 4: Logs
    --------------------------------------
@@ -420,18 +435,18 @@ cd /root/cpt-regulus
 ./run_cpt.sh
 ```
 
-#### Issue 6: "Results not copied from bastion"
-**Cause**: Results directory doesn't exist or rsync/scp failed
+#### Issue 6: "No jobs.log collected from the controller"
+**Cause**: `make jobs` did not run, or no `jobs.log-*` exists at `${REGULUS_PATH}`
 **Fix**:
 ```bash
-# Check if results exist on bastion
-ssh root@$BASTION_HOST "ls -la /root/cpt-regulus/latest"
-ssh root@$BASTION_HOST "readlink -f /root/cpt-regulus/latest"
+# Check if a jobs.log exists on the controller (bastion or 'other' host)
+ssh root@$REGULUS_HOST "ls -la ${REGULUS_PATH}/jobs.log-*"
 
-# Manually copy results
-LATEST=$(ssh root@$BASTION_HOST "readlink -f /root/cpt-regulus/latest")
+# Manually collect the newest one
+LATEST_LOG=$(ssh root@$REGULUS_HOST \
+    "find ${REGULUS_PATH} -maxdepth 1 -name 'jobs.log-*' -type f -printf '%T@ %p\n' | sort -n | tail -1 | cut -d' ' -f2-")
 mkdir -p artifacts/manual-copy
-rsync -az root@$BASTION_HOST:${LATEST}/ artifacts/manual-copy/
+scp root@$REGULUS_HOST:"$LATEST_LOG" artifacts/manual-copy/
 ```
 
 ### Phase 6 Issues
@@ -449,16 +464,16 @@ make test-run
 
 #### Issue 8: "Validation passed but tests actually failed"
 **Cause**: Validation is basic, may not catch all failure modes
-**Action**: Always review actual result files:
+**Action**: Always review the actual jobs log:
 ```bash
-# Review result summary
-cat artifacts/latest/regulus-results/result-summary.txt
+# Review the collected make jobs log (verdict source)
+less artifacts/latest/regulus-results/jobs.log-*
 
-# Review execution log
+# Check for errors (case-sensitive, as Phase 6 does)
+grep -n "ERROR" artifacts/latest/regulus-results/jobs.log-*
+
+# Review the wrapper log
 less artifacts/latest/logs/regulus-run.log
-
-# Check for Crucible errors
-grep -i error artifacts/latest/logs/regulus-run.log
 ```
 
 ## Integration with Other Phases
@@ -665,10 +680,10 @@ make run
    less artifacts/latest/logs/regulus-run.log
    ```
 
-2. **Review result files**:
+2. **Review the collected jobs log**:
    ```bash
    ls -lR artifacts/latest/regulus-results/
-   cat artifacts/latest/regulus-results/result-summary.txt
+   less artifacts/latest/regulus-results/jobs.log-*
    ```
 
 3. **Test manually on bastion**:
