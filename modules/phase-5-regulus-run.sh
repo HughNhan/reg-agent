@@ -116,24 +116,37 @@ echo "Artifacts: $ARTIFACT_DIR"
 echo ""
 
 # Run Regulus tests on controller host
-echo "========================================="
-echo "Executing Regulus Tests (run_cpt.sh)"
-echo "========================================="
-echo ""
-echo "run_cpt.sh will:"
-echo "  1. Run reg-smart-config (auto-detect NICs)"
-echo "  2. Run make init-lab (lab-analyzer, SRIOV_INIT, INVENTORY)"
-echo "  3. Run make init-jobs (test job configuration)"
-echo "  4. Execute performance tests"
-echo ""
-echo "This may take several minutes to hours depending on test configuration..."
-echo ""
+# Set REG_REUSE_LAST_RUN=1 to skip execution and only collect/validate the
+# jobs.log-<date> left by a PREVIOUS run_cpt.sh run on the controller. Useful
+# for iterating on collection/validation logic without re-running make jobs.
+if [ "${REG_REUSE_LAST_RUN:-0}" = "1" ]; then
+    echo "========================================="
+    echo "REUSE MODE: skipping run_cpt.sh execution"
+    echo "========================================="
+    echo "Reusing the previous jobs.log-<date> on ${REGULUS_HOST}:${REGULUS_PATH}"
+    echo ""
+    RUN_EXIT_CODE=0
+    echo "(execution skipped: REG_REUSE_LAST_RUN=1)" > "${ARTIFACT_DIR}/logs/regulus-run.log"
+else
+    echo "========================================="
+    echo "Executing Regulus Tests (run_cpt.sh)"
+    echo "========================================="
+    echo ""
+    echo "run_cpt.sh will:"
+    echo "  1. Run reg-smart-config (auto-detect NICs)"
+    echo "  2. Run make init-lab (lab-analyzer, SRIOV_INIT, INVENTORY)"
+    echo "  3. Run make init-jobs (test job configuration)"
+    echo "  4. Execute performance tests"
+    echo ""
+    echo "This may take several minutes to hours depending on test configuration..."
+    echo ""
 
-# Execute run_cpt.sh directly (it handles bootstrap and all initialization)
-ssh root@${REGULUS_HOST} "cd ${REGULUS_PATH} && bash run_cpt.sh" 2>&1 | tee "${ARTIFACT_DIR}/logs/regulus-run.log"
+    # Execute run_cpt.sh directly (it handles bootstrap and all initialization)
+    ssh root@${REGULUS_HOST} "cd ${REGULUS_PATH} && bash run_cpt.sh" 2>&1 | tee "${ARTIFACT_DIR}/logs/regulus-run.log"
 
-# Capture the actual SSH command exit code, not tee's exit code
-RUN_EXIT_CODE=${PIPESTATUS[0]}
+    # Capture the actual SSH command exit code, not tee's exit code
+    RUN_EXIT_CODE=${PIPESTATUS[0]}
+fi
 
 # Save run metadata
 echo "RUN_ID=${RUN_ID}" >> "${REG_AGENT_ROOT}/vars/state.env"
@@ -150,37 +163,30 @@ else
 fi
 
 # Collect results from Regulus host
+# run_cpt.sh runs "make jobs" in ${REGULUS_PATH} (the regulus repo root, where
+# run_cpt.sh lives). "make jobs" writes a timestamped jobs.log-<date> there,
+# which is the authoritative record of the run and the handoff to Phase 6.
 echo ""
 echo "Collecting results from ${REGULUS_HOST}..."
 
-# Find latest results directory
-LATEST_RESULT=$(ssh root@${REGULUS_HOST} "cd ${REGULUS_PATH} && readlink -f latest 2>/dev/null || echo ''")
+mkdir -p "${ARTIFACT_DIR}/regulus-results"
 
-if [ -n "$LATEST_RESULT" ] && ssh root@${REGULUS_HOST} "[ -d '$LATEST_RESULT' ]"; then
-    echo "Latest results: $LATEST_RESULT"
+# Find the newest jobs.log-* (the one "make jobs" just wrote this run). Sort by
+# mtime so stale logs from prior runs are ignored even if timestamps differ.
+LATEST_LOG=$(ssh root@${REGULUS_HOST} \
+    "find ${REGULUS_PATH} -maxdepth 1 -name 'jobs.log-*' -type f -printf '%T@ %p\n' 2>/dev/null | sort -n | tail -1 | cut -d' ' -f2-")
 
-    # Copy results
-    mkdir -p "${ARTIFACT_DIR}/regulus-results"
-
-    if command -v rsync &>/dev/null; then
-        rsync -az root@${REGULUS_HOST}:${LATEST_RESULT}/ "${ARTIFACT_DIR}/regulus-results/"
-        echo -e "${GREEN}✓ Results copied via rsync${NC}"
+if [ -n "$LATEST_LOG" ]; then
+    echo "Jobs log: $LATEST_LOG"
+    if scp root@${REGULUS_HOST}:"$LATEST_LOG" "${ARTIFACT_DIR}/regulus-results/"; then
+        JOBS_LOG=$(basename "$LATEST_LOG")
+        echo "JOBS_LOG=${JOBS_LOG}" >> "${REG_AGENT_ROOT}/vars/state.env"
+        echo -e "${GREEN}✓ Collected ${JOBS_LOG}${NC}"
     else
-        scp -r root@${REGULUS_HOST}:${LATEST_RESULT}/* "${ARTIFACT_DIR}/regulus-results/" 2>/dev/null || echo "⚠️  Some results may not have copied"
-        echo -e "${GREEN}✓ Results copied via scp${NC}"
-    fi
-
-    # Copy result-summary.txt if it exists
-    if [ -f "${ARTIFACT_DIR}/regulus-results/result-summary.txt" ]; then
-        echo ""
-        echo "========================================="
-        echo "Result Summary"
-        echo "========================================="
-        cat "${ARTIFACT_DIR}/regulus-results/result-summary.txt"
-        echo ""
+        echo -e "${YELLOW}⚠️  Failed to copy ${LATEST_LOG} from ${REGULUS_HOST}${NC}"
     fi
 else
-    echo -e "${YELLOW}⚠️  No results directory found on ${REGULUS_HOST}${NC}"
+    echo -e "${YELLOW}⚠️  No jobs.log-* found on ${REGULUS_HOST}:${REGULUS_PATH} — make jobs may not have run${NC}"
 fi
 
 # Create symlink to latest artifacts
