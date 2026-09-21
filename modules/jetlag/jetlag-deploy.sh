@@ -700,6 +700,16 @@ else
         exit 1
     fi
 
+    # Purge any stale host key for this bastion. On re-allocation the bastion is
+    # reimaged and presents a NEW SSH host key; a leftover (expired) entry in
+    # known_hosts causes "Host key verification failed" and blocks login. Note:
+    # StrictHostKeyChecking=no does NOT bypass a *changed* key, only an unknown one.
+    log ""
+    log "Removing any stale host key for ${BASTION_HOST} from known_hosts..."
+    ssh-keygen -R "${BASTION_HOST}" >/dev/null 2>&1 || true
+    BASTION_IP=$(getent hosts "${BASTION_HOST}" 2>/dev/null | awk '{print $1}' | head -1)
+    [ -n "$BASTION_IP" ] && ssh-keygen -R "$BASTION_IP" >/dev/null 2>&1 || true
+
     # Phase 2: Wait for SSH access (OS is booting)
     log ""
     log "Phase 2: Waiting for SSH access..."
