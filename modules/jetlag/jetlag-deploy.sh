@@ -704,6 +704,15 @@ else
     # reimaged and presents a NEW SSH host key; a leftover (expired) entry in
     # known_hosts causes "Host key verification failed" and blocks login. Note:
     # StrictHostKeyChecking=no does NOT bypass a *changed* key, only an unknown one.
+    #
+    # Accepted risk (CWE-295 / TOFU): after the purge the bastion is "unknown", so
+    # the SSH probes below trust-on-first-use and may fall back to sshpass with
+    # LAB_SSH_PASSWORD. This matches the tool's pre-existing behaviour for every
+    # first-time bastion connection, and with wipe_disks=yes the reimaged host's
+    # old key is genuinely dead, so there is no stable fingerprint to pin. This is
+    # only run against trusted lab-provisioned hardware on the lab network.
+    # Pinning a fingerprint out-of-band (Foreman/BMC) is tracked as separate
+    # hardening, not this bug fix.
     log ""
     log "Removing any stale host key for ${BASTION_HOST} from known_hosts..."
     ssh-keygen -R "${BASTION_HOST}" >/dev/null 2>&1 || true
