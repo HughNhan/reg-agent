@@ -63,7 +63,21 @@ check_repo "ansible-quads-ssm"
 # Required configuration variables
 check_var "QUADS API server" "QUADS_API_SERVER"
 check_var "QUADS username" "QUADS_USERNAME"
-check_var "QUADS password" "QUADS_PASSWORD"
+# Authentication: QUADS_API_TOKEN is preferred; QUADS_PASSWORD is the fallback.
+# Require at least one so the allocation can authenticate (mirrors the other
+# quads-ssm-*.sh scripts, which already accept a token in place of a password).
+if [ -n "$QUADS_API_TOKEN" ]; then
+    echo -e "${GREEN}✓${NC} Variable set: QUADS authentication (QUADS_API_TOKEN)"
+    DEPS_PASSED=$((DEPS_PASSED + 1))
+elif [ -n "$QUADS_PASSWORD" ]; then
+    echo -e "${GREEN}✓${NC} Variable set: QUADS authentication (QUADS_PASSWORD)"
+    DEPS_PASSED=$((DEPS_PASSED + 1))
+else
+    echo -e "${RED}✗${NC} QUADS authentication not configured (need QUADS_API_TOKEN or QUADS_PASSWORD)"
+    echo "   Expected in: vars/config.json (.quads.api_token or .quads.password)"
+    FAILED_DEPS+=("var:QUADS_API_TOKEN|QUADS_PASSWORD")
+    DEPS_FAILED=$((DEPS_FAILED + 1))
+fi
 check_var "Lab" "QUADS_LAB"
 check_var "Number of hosts" "QUADS_NUM_HOSTS"
 check_var "Workload name" "QUADS_WORKLOAD_NAME"
@@ -205,6 +219,7 @@ quads_api_server: "${QUADS_API_SERVER}"
 quads_username: "${QUADS_USERNAME}"
 quads_user_domain: "${QUADS_USER_DOMAIN}"
 quads_password: "${QUADS_PASSWORD}"
+quads_api_token: "${QUADS_API_TOKEN}"
 preferred_models: ${PREFERRED_MODELS_YAML}
 EOF
 

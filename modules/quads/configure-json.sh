@@ -50,6 +50,8 @@ echo "Reading existing QUADS configuration..."
 EXISTING_MODE=$(jq -r '.quads.mode // "allocate"' "$CONFIG_JSON")
 EXISTING_API_SERVER=$(jq -r '.quads.api_server // ""' "$CONFIG_JSON")
 EXISTING_USERNAME=$(jq -r '.quads.username // ""' "$CONFIG_JSON")
+EXISTING_API_TOKEN=$(jq -r '.quads.api_token // ""' "$CONFIG_JSON")
+EXISTING_PASSWORD=$(jq -r '.quads.password // ""' "$CONFIG_JSON")
 EXISTING_LAB=$(jq -r '.quads.lab // "scalelab"' "$CONFIG_JSON")
 EXISTING_NUM_HOSTS=$(jq -r '.quads.num_hosts // "6"' "$CONFIG_JSON")
 EXISTING_PREFERRED_MODEL=$(jq -r '.quads.preferred_model // "r750"' "$CONFIG_JSON")
@@ -131,6 +133,7 @@ if [[ "$NEW_LAB" == "byol" ]]; then
     NEW_API_SERVER=""
     NEW_USERNAME=""
     NEW_PASSWORD=""
+    NEW_API_TOKEN=""
     echo ""
 else
     # API Server (required)
@@ -157,10 +160,35 @@ else
     done
     echo ""
 
-    # Password (don't show existing)
-    echo "5. QUADS Password"
-    read -sp "   Password (hidden): " NEW_PASSWORD
+    # Authentication: SSO API token is preferred; password is the fallback.
+    echo "5. QUADS Authentication"
+    echo "   Preferred: SSO API token. Leave the token blank to use a password instead."
+    if [[ -n "$EXISTING_API_TOKEN" ]]; then
+        echo -e "   ${GREEN}(An API token is already configured; press Enter to keep it)${NC}"
+    fi
+    read -sp "   API token (hidden): " INPUT_API_TOKEN
     echo ""
+    if [[ -n "$INPUT_API_TOKEN" ]]; then
+        # New token entered -> use token auth, clear any stored password
+        NEW_API_TOKEN="$INPUT_API_TOKEN"
+        NEW_PASSWORD=""
+        echo -e "   ${GREEN}✓ Using API token authentication${NC}"
+    elif [[ -n "$EXISTING_API_TOKEN" ]]; then
+        # Blank input but a token already exists -> keep it
+        NEW_API_TOKEN="$EXISTING_API_TOKEN"
+        NEW_PASSWORD=""
+        echo -e "   ${GREEN}✓ Keeping existing API token${NC}"
+    else
+        # No token -> fall back to password (blank keeps existing password)
+        NEW_API_TOKEN=""
+        read -sp "   Password (hidden, Enter to keep existing): " INPUT_PASSWORD
+        echo ""
+        if [[ -n "$INPUT_PASSWORD" ]]; then
+            NEW_PASSWORD="$INPUT_PASSWORD"
+        else
+            NEW_PASSWORD="$EXISTING_PASSWORD"
+        fi
+    fi
     echo ""
 fi
 
@@ -278,6 +306,7 @@ jq --arg mode "$NEW_MODE" \
    --arg api_server "$NEW_API_SERVER" \
    --arg username "$NEW_USERNAME" \
    --arg password "$NEW_PASSWORD" \
+   --arg api_token "$NEW_API_TOKEN" \
    --arg lab "$NEW_LAB" \
    --arg cloud_name "$NEW_CLOUD_NAME" \
    --arg num_hosts "$NEW_NUM_HOSTS" \
@@ -290,6 +319,7 @@ jq --arg mode "$NEW_MODE" \
     .quads.api_server = $api_server |
     .quads.username = $username |
     .quads.password = $password |
+    .quads.api_token = $api_token |
     .quads.lab = $lab |
     .quads.cloud_name = $cloud_name |
     .quads.num_hosts = $num_hosts |
