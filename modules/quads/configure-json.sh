@@ -4,6 +4,11 @@
 
 set -e
 
+# config.json stores QUADS credentials (api_token / password); create it and any
+# temp files with owner-only permissions so a permissive umask can't leave the
+# plaintext secrets readable by other local users (CWE-312).
+umask 077
+
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 REG_AGENT_ROOT="$(cd "${SCRIPT_DIR}/../.." && pwd)"
 VARS_DIR="${REG_AGENT_ROOT}/vars"
@@ -161,14 +166,38 @@ else
     echo ""
 
     # Authentication: SSO API token is preferred; password is the fallback.
+    # (read -r so backslashes in a token/password are preserved verbatim.)
     echo "5. QUADS Authentication"
-    echo "   Preferred: SSO API token. Leave the token blank to use a password instead."
     if [[ -n "$EXISTING_API_TOKEN" ]]; then
-        echo -e "   ${GREEN}(An API token is already configured; press Enter to keep it)${NC}"
+        echo "   An API token is already configured. Choose one:"
+        echo "     - enter a new token to replace it"
+        echo "     - press Enter to keep the existing token"
+        echo "     - type 'password' to switch to password authentication"
+    else
+        echo "   Preferred: SSO API token. Leave the token blank to use a password instead."
     fi
-    read -sp "   API token (hidden): " INPUT_API_TOKEN
+    read -rsp "   API token (hidden): " INPUT_API_TOKEN
     echo ""
-    if [[ -n "$INPUT_API_TOKEN" ]]; then
+    if [[ "$INPUT_API_TOKEN" == "password" ]]; then
+        # Explicit switch to password auth, even when a token already exists
+        # (lets a user recover from an expired token). Clears the stored token.
+        NEW_API_TOKEN=""
+        read -rsp "   Password (hidden, Enter to keep existing): " INPUT_PASSWORD
+        echo ""
+        if [[ -n "$INPUT_PASSWORD" ]]; then
+            NEW_PASSWORD="$INPUT_PASSWORD"
+        else
+            NEW_PASSWORD="$EXISTING_PASSWORD"
+        fi
+        if [[ -z "$NEW_PASSWORD" ]]; then
+            # Switched to password auth but no password entered or stored -> the
+            # config would have no QUADS credential at all. Warn instead of
+            # silently writing a credential-less config.
+            echo -e "   ${YELLOW}⚠ No password entered and none stored; QUADS will have no credential.${NC}"
+        else
+            echo -e "   ${GREEN}✓ Using password authentication${NC}"
+        fi
+    elif [[ -n "$INPUT_API_TOKEN" ]]; then
         # New token entered -> use token auth, clear any stored password
         NEW_API_TOKEN="$INPUT_API_TOKEN"
         NEW_PASSWORD=""
@@ -179,9 +208,9 @@ else
         NEW_PASSWORD=""
         echo -e "   ${GREEN}✓ Keeping existing API token${NC}"
     else
-        # No token -> fall back to password (blank keeps existing password)
+        # No token configured -> password auth (blank keeps existing password)
         NEW_API_TOKEN=""
-        read -sp "   Password (hidden, Enter to keep existing): " INPUT_PASSWORD
+        read -rsp "   Password (hidden, Enter to keep existing): " INPUT_PASSWORD
         echo ""
         if [[ -n "$INPUT_PASSWORD" ]]; then
             NEW_PASSWORD="$INPUT_PASSWORD"
@@ -282,7 +311,7 @@ fi
 EXISTING_LAB_PASSWORD=$(jq -r '.lab.ssh_password // ""' "$CONFIG_JSON")
 echo "11. Lab SSH Password (shared setting)"
 echo "    Default password for SSH to lab machines"
-read -sp "    Lab password (hidden): " NEW_LAB_PASSWORD
+read -rsp "    Lab password (hidden): " NEW_LAB_PASSWORD
 echo ""
 if [ -z "$NEW_LAB_PASSWORD" ] && [ -n "$EXISTING_LAB_PASSWORD" ]; then
     NEW_LAB_PASSWORD="$EXISTING_LAB_PASSWORD"
@@ -302,11 +331,16 @@ else
     NUM_HOSTS_ASSIGN='.quads.num_hosts = $num_hosts'
 fi
 
+# Secrets (password, api_token, lab_password) are passed through the environment
+# and read via jq's $ENV rather than --arg, so they don't appear in the jq
+# process's command-line arguments (world-readable via /proc/<pid>/cmdline). The
+# environment is only readable by the same user (CWE-214).
+JQ_PASSWORD="$NEW_PASSWORD" \
+JQ_API_TOKEN="$NEW_API_TOKEN" \
+JQ_LAB_PASSWORD="$NEW_LAB_PASSWORD" \
 jq --arg mode "$NEW_MODE" \
    --arg api_server "$NEW_API_SERVER" \
    --arg username "$NEW_USERNAME" \
-   --arg password "$NEW_PASSWORD" \
-   --arg api_token "$NEW_API_TOKEN" \
    --arg lab "$NEW_LAB" \
    --arg cloud_name "$NEW_CLOUD_NAME" \
    --arg num_hosts "$NEW_NUM_HOSTS" \
@@ -314,12 +348,11 @@ jq --arg mode "$NEW_MODE" \
    --arg workload "$NEW_WORKLOAD_NAME" \
    --arg wipe "$NEW_WIPE_DISKS" \
    --argjson validation_timeout "$NEW_VALIDATION_TIMEOUT" \
-   --arg lab_password "$NEW_LAB_PASSWORD" \
    '.quads.mode = $mode |
     .quads.api_server = $api_server |
     .quads.username = $username |
-    .quads.password = $password |
-    .quads.api_token = $api_token |
+    .quads.password = $ENV.JQ_PASSWORD |
+    .quads.api_token = $ENV.JQ_API_TOKEN |
     .quads.lab = $lab |
     .quads.cloud_name = $cloud_name |
     .quads.num_hosts = $num_hosts |
@@ -327,7 +360,7 @@ jq --arg mode "$NEW_MODE" \
     .quads.workload_name = $workload |
     .quads.wipe_disks = $wipe |
     .quads.validation_timeout = $validation_timeout |
-    .lab.ssh_password = $lab_password' \
+    .lab.ssh_password = $ENV.JQ_LAB_PASSWORD' \
    "$CONFIG_JSON" > "${CONFIG_JSON}.tmp"
 
 mv "${CONFIG_JSON}.tmp" "$CONFIG_JSON"

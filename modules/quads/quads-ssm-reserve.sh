@@ -121,6 +121,16 @@ elif [ -f "${REG_AGENT_ROOT}/vars/state.env" ]; then
 fi
 
 # Get authentication token
+#
+# Accepted risk (CWE-295): the QUADS API calls below use `curl -k`, so the
+# credential (Bearer token or username/password) is sent over a connection whose
+# TLS certificate is not validated. The lab QUADS server presents a self-signed
+# certificate that is not in the host trust store, so `-k` is required for the
+# tool to function, and this matches the pre-existing behaviour of every other
+# quads-ssm-*.sh script (the password login has always used `-k`). Using a token
+# instead of a password does not add exposure. Only run against trusted lab
+# infrastructure on the internal lab network. Distributing the lab CA to the
+# host trust store (and dropping `-k`) is tracked as separate hardening.
 if [ -n "$QUADS_API_TOKEN" ]; then
     QUADS_TOKEN="$QUADS_API_TOKEN"
 else
