@@ -7,6 +7,7 @@
     "username": "",
     "password": "",
     "api_token": "",
+    "api_ca_bundle": "",
     "user_domain": "redhat.com",
     "lab": "scalelab",
     "_comment_lab": "Valid labs: scalelab, performancelab, byol (byol = bring your own lab, no QUADS API needed)",
