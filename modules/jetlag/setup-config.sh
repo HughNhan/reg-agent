@@ -6,6 +6,26 @@ set -e
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 ROOT_DIR="$(cd "${SCRIPT_DIR}/../.." && pwd)"
+REG_AGENT_ROOT="$ROOT_DIR"
+export REG_AGENT_ROOT
+
+# Make the QUADS token from config.json available to the setup and generation
+# paths without printing it or requiring a second credential prompt.
+if [ -f "$ROOT_DIR/modules/lib/json-config.sh" ]; then
+    source "$ROOT_DIR/modules/lib/json-config.sh"
+    if [ -f "$ROOT_DIR/vars/config.json" ]; then
+        if [ -z "${QUADS_API_TOKEN:-}" ]; then
+            QUADS_API_TOKEN=$(json_get ".quads.api_token" "")
+            export QUADS_API_TOKEN
+        fi
+        # Preserve the saved stack when setup is rerun from an existing
+        # allocation; otherwise the default below would silently reset it.
+        if [ -z "${NETWORK_STACK:-}" ]; then
+            NETWORK_STACK=$(json_get ".jetlag.network_stack" "ipv4")
+            export NETWORK_STACK
+        fi
+    fi
+fi
 
 # Ensure config directory exists
 mkdir -p "${SCRIPT_DIR}/generated/config"
@@ -602,6 +622,8 @@ if [ "$choice" = "1" ] || [ "$choice" = "2" ] || [ "$choice" = "3" ]; then
 ################################################################################
 lab: ${LAB:-scalelab}
 lab_cloud: ${CLOUD_NAME:-cloud99}
+# QUADS API token for authenticated inventory download (required for QUADS 3+)
+quads_api_token: "${QUADS_API_TOKEN:-}"
 cluster_type: ${CLUSTER_TYPE}
 worker_node_count: ${WORKER_NODE_COUNT}
 
@@ -638,6 +660,55 @@ setup_bastion_registry: false
 use_bastion_registry: false
 setup_bastion_proxy: false
 EOF
+
+    # Match jetlag-deploy.sh: explicitly configure non-IPv4 network stacks.
+    if [ "$NETWORK_STACK" = "ipv6" ]; then
+        cat >> "${ROOT_DIR}/repos/jetlag/ansible/vars/all.yml" << 'EOF'
+
+# IPv6 Network Configuration
+controlplane_network:
+- fd00:198:18:10::/64
+
+controlplane_network_prefix:
+- 64
+
+cluster_network_cidr:
+- fd01::/48
+
+cluster_network_host_prefix:
+- 64
+
+service_network_cidr:
+- fd02::/112
+EOF
+    elif [ "$NETWORK_STACK" = "dual" ]; then
+        cat >> "${ROOT_DIR}/repos/jetlag/ansible/vars/all.yml" << 'EOF'
+
+# Dual Stack Network Configuration
+controlplane_network:
+- 198.18.0.0/16
+- fd00:198:18:10::/64
+
+controlplane_network_prefix:
+- 16
+- 64
+
+cluster_network_cidr:
+- 10.128.0.0/14
+- fd01::/48
+
+cluster_network_host_prefix:
+- 23
+- 64
+
+service_network_cidr:
+- 172.30.0.0/16
+- fd02::/112
+EOF
+    fi
+
+    # all.yml now contains the QUADS bearer token; keep it private.
+    chmod 600 "${ROOT_DIR}/repos/jetlag/ansible/vars/all.yml"
 
     echo -e "${GREEN}✓ Generated: ${ROOT_DIR}/repos/jetlag/ansible/vars/all.yml${NC}"
     echo ""

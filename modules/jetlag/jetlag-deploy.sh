@@ -156,6 +156,12 @@ if [ -f "${ROOT_DIR}/vars/config.json" ]; then
 source "${ROOT_DIR}/modules/lib/json-config.sh"
 json_export_env ".jetlag" ""
 json_export_env ".lab" "LAB"
+# Jetlag v0.3.15+ requires this token in all.yml for QUADS 3+ inventory access.
+# Preserve an explicitly supplied environment value, falling back to config.json.
+if [[ -z "${QUADS_API_TOKEN:-}" ]]; then
+    QUADS_API_TOKEN=$(json_get ".quads.api_token" "")
+fi
+export QUADS_API_TOKEN
 else
     log "${YELLOW}Warning: vars/config.json not found, will use environment variables${NC}"
 fi
@@ -351,6 +357,8 @@ else
 ################################################################################
 lab: ${LAB}
 lab_cloud: ${CLOUD_NAME}
+# QUADS API token for authenticated inventory download (required for QUADS 3+)
+quads_api_token: "${QUADS_API_TOKEN:-}"
 cluster_type: ${CLUSTER_TYPE}
 worker_node_count: ${WORKER_NODE_COUNT}
 
@@ -403,6 +411,9 @@ enable_bond_vlan: false
 ################################################################################
 use_prega_content: false
 EOF
+
+    # all.yml now contains the QUADS bearer token; keep it private.
+    chmod 600 ansible/vars/all.yml
 
     # Configure network stack
     if [ "$NETWORK_STACK" = "ipv4" ]; then
