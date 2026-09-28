@@ -40,6 +40,10 @@
           "type": "string",
           "description": "QUADS API token (preferred over password)"
         },
+        "api_ca_bundle": {
+          "type": "string",
+          "description": "Optional CA bundle for the QUADS API TLS certificate"
+        },
         "user_domain": {
           "type": "string",
           "description": "User email domain (e.g., redhat.com)"

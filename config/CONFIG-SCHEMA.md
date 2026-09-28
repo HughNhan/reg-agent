@@ -42,6 +42,7 @@ Controls Phase 1: Bare metal allocation via QUADS.
 | `username` | string | Yes | QUADS username (without @redhat.com) |
 | `password` | string | One of password/api_token | QUADS password |
 | `api_token` | string | One of password/api_token | QUADS API token (preferred) |
+| `api_ca_bundle` | string | No | Optional CA bundle path for the QUADS API TLS certificate |
 | `lab` | string | Yes | Lab name: "scalelab" or "performancelab" |
 | `num_hosts` | integer | Yes | Number of hosts to allocate (2 for SNO, 6+ for MNO) |
 | `preferred_model` | string | No | Comma-separated model preferences (e.g., "r650,r750") |
