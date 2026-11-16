@@ -349,11 +349,12 @@ AUTOFIX_PREP
 
         COPY_RESULT=$(ssh ${REG_KNI_USER}@${BASTION_HOST} bash <<SSHCOPY 2>&1) || {
 # Ensure the public key is present with a Crucible-safe, idempotent tag.
+set -e
 mkdir -p ~/.ssh
 chmod 700 ~/.ssh
 touch ~/.ssh/authorized_keys
 if ! awk -v key="${REGULUS_PUBKEY}" -v tag="run-cpt-tag" '
-    $1 " " $2 == key && $3 == tag { found=1 }
+    \$1 " " \$2 == key && \$3 == tag { found=1 }
     END { exit !found }
 ' ~/.ssh/authorized_keys; then
     printf '%s %s\n' "${REGULUS_PUBKEY}" "run-cpt-tag" >> ~/.ssh/authorized_keys
